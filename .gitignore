@@ -1,0 +1,56 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches and test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment files and credentials
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.cert
+*.crt
+id_rsa
+id_ecdsa
+id_ed25519
+
+# IDE and Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Docker and container build data
+*.tar
+*.docker
+.docker/
+
+# Local Audit output dossiers and session reports (preserve directory structure via .gitkeep)
+audit_reports/*
+!audit_reports/.gitkeep
+
+# Temporary build contexts and scratch workspaces
+scratch/
+tmp/
+temp/
+build/
+dist/
+*.egg-info/
