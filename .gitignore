@@ -20,7 +20,9 @@ env/
 # Environment files and credentials
 .env
 .env.*
+!.env.example
 *.env
+*.log
 *.pem
 *.key
 *.cert
@@ -54,3 +56,8 @@ temp/
 build/
 dist/
 *.egg-info/
+
+# Frontend dependencies and builds
+node_modules/
+frontend/node_modules/
+frontend/dist/

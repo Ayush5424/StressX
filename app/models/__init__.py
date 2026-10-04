@@ -7,6 +7,7 @@ from app.models.attempt import AttackAttempt
 from app.models.decision import AgentDecision
 from app.models.session import AuditSession, SessionStatus, AuditPhase
 from app.models.metrics import ActionRecord, AuditMetrics, AggregateMetrics
+from app.models.config import AuditConfig, TargetComplexity, ComplexityLevel, AuditStatus
 
 __all__ = [
     "Target",
@@ -28,4 +29,8 @@ __all__ = [
     "ActionRecord",
     "AuditMetrics",
     "AggregateMetrics",
+    "AuditConfig",
+    "TargetComplexity",
+    "ComplexityLevel",
+    "AuditStatus",
 ]

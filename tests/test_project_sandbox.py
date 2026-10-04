@@ -101,7 +101,7 @@ def test_project_type_detection_python(tmp_path):
 
 def test_sample_project_folder_detection():
     # Test path in stressx-ai
-    sample_dir = Path("c:/Users/dell/Downloads/Auditor/stressx-ai/sample_projects/python_api")
+    sample_dir = Path(__file__).resolve().parent.parent / "sample_projects" / "python_api"
     assert sample_dir.exists(), f"Sample project directory must exist at {sample_dir}"
     info = ProjectDetector.detect(sample_dir)
     assert info.project_type == ProjectType.PYTHON
@@ -112,7 +112,8 @@ def test_sample_project_folder_detection():
 @pytest.mark.asyncio
 async def test_sample_project_endpoints():
     import sys
-    sys.path.insert(0, "c:/Users/dell/Downloads/Auditor/stressx-ai/sample_projects/python_api")
+    sample_dir = Path(__file__).resolve().parent.parent / "sample_projects" / "python_api"
+    sys.path.insert(0, str(sample_dir))
     from sample_projects.python_api.app import app as sample_app
     from httpx import ASGITransport
 

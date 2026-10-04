@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.models.target import Target
 from app.models.observation import Observation
-from app.models.hypothesis import Hypothesis
+from app.models.hypothesis import Hypothesis, HypothesisStatus
 from app.models.attempt import AttackAttempt
 from app.models.finding import Finding
 from app.models.evidence import Evidence
@@ -39,6 +39,8 @@ def generate_session_id() -> str:
 class AuditSession(BaseModel):
     """Encapsulates the state, history, hypotheses, and evidence of an autonomous security audit."""
     id: str = Field(default_factory=generate_session_id)
+    audit_name: str = Field(default="Security Audit", description="User-facing audit name")
+    target_name: str = Field(default="Target Application", description="Target application or project name")
     target: Target = Field(..., description="Target definition and boundary config")
     status: SessionStatus = Field(default=SessionStatus.INITIALIZING)
     current_phase: AuditPhase = Field(default=AuditPhase.RECON, description="Active audit execution phase")
@@ -46,6 +48,9 @@ class AuditSession(BaseModel):
     repeated_actions_prevented: int = Field(default=0, description="Count of duplicate actions blocked by anti-repetition guard")
     sandbox_deployments: int = Field(default=0, description="Count of verified successful sandbox deployments")
     sandbox_cleanup_success: int = Field(default=0, description="Count of verified successful sandbox cleanups")
+    services_deployed: int = Field(default=0, description="Number of services deployed in multi-service sandbox")
+    primary_target_service: Optional[str] = Field(default=None, description="Primary service targeted in multi-service stack")
+    deployment_duration: float = Field(default=0.0, description="Time taken to deploy and verify sandbox readiness in seconds")
     step_count: int = Field(default=0)
     max_steps: int = Field(default=30)
     start_time: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -77,12 +82,40 @@ class AuditSession(BaseModel):
             if getattr(self.target, "sandbox_cleanup_success", False):
                 self.sandbox_cleanup_success = 1
                 self.context_data["sandbox_cleanup_success"] = 1
+            if getattr(self.target, "is_multi_service", False):
+                services = getattr(self.target, "services", [])
+                self.services_deployed = len(services)
+                self.primary_target_service = getattr(self.target, "primary_service", None)
+                self.deployment_duration = getattr(self.target, "deployment_duration", 0.0)
+                self.context_data["services_deployed"] = services
+                self.context_data["primary_target_service"] = self.primary_target_service
+                self.context_data["deployment_duration"] = self.deployment_duration
 
     def record_sandbox_deployment(self, success: bool = True) -> None:
         self.sandbox_deployments = 1 if success else 0
         if self.target:
             self.target.sandbox_deployment_success = success
         self.context_data["sandbox_deployments"] = self.sandbox_deployments
+
+    def record_multi_service_deployment(
+        self,
+        success: bool,
+        services: list[str],
+        primary_service: Optional[str] = None,
+        duration: float = 0.0
+    ) -> None:
+        self.record_sandbox_deployment(success)
+        self.services_deployed = len(services) if success else 0
+        self.primary_target_service = primary_service if success else None
+        self.deployment_duration = round(duration, 2)
+        if self.target:
+            self.target.is_multi_service = True
+            self.target.services = services
+            self.target.primary_service = primary_service
+            self.target.deployment_duration = self.deployment_duration
+        self.context_data["services_deployed"] = services if success else []
+        self.context_data["primary_target_service"] = self.primary_target_service
+        self.context_data["deployment_duration"] = self.deployment_duration
 
     def record_sandbox_cleanup(self, success: bool = True) -> None:
         self.sandbox_cleanup_success = 1 if success else 0
@@ -129,3 +162,14 @@ class AuditSession(BaseModel):
         self.status = status
         self.current_phase = AuditPhase.COMPLETE
         self.end_time = datetime.now(timezone.utc).isoformat()
+
+    @property
+    def duration_seconds(self) -> float:
+        if not self.start_time:
+            return 0.0
+        try:
+            start = datetime.fromisoformat(self.start_time)
+            end = datetime.fromisoformat(self.end_time) if self.end_time else datetime.now(timezone.utc)
+            return round(max(0.0, (end - start).total_seconds()), 2)
+        except Exception:
+            return 0.0

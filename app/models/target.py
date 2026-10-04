@@ -1,3 +1,4 @@
+from typing import Optional
 from urllib.parse import urlparse
 from pydantic import BaseModel, Field
 
@@ -20,6 +21,10 @@ class Target(BaseModel):
     is_sandboxed: bool = Field(default=False, description="Whether target is running inside an isolated Docker container")
     sandbox_deployment_success: bool = Field(default=False, description="Whether Docker sandbox container was successfully deployed")
     sandbox_cleanup_success: bool = Field(default=False, description="Whether Docker sandbox container was cleanly removed")
+    is_multi_service: bool = Field(default=False, description="Whether target is part of a multi-service Docker Compose stack")
+    primary_service: Optional[str] = Field(default=None, description="Name of the primary application service in Compose stack")
+    services: list[str] = Field(default_factory=list, description="All services declared in Compose stack")
+    deployment_duration: float = Field(default=0.0, description="Duration in seconds taken to build and ready the sandbox")
 
     def model_post_init(self, __context) -> None:
         parsed = urlparse(self.base_url)

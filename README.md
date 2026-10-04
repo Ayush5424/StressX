@@ -2,211 +2,263 @@
 
 [![Python](https://img.shields.io/badge/Python-3.13+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB.svg)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6.svg)](https://www.typescriptlang.org/)
 [![Docker](https://img.shields.io/badge/Docker-Sandboxed-2496ED.svg)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > [!WARNING]
-> **AUTHORIZED RESEARCH & TESTING USE ONLY**
-> StressX is an autonomous security auditing and adversarial testing research system designed strictly for authorized penetration testing, vulnerability assessment, and security research against systems you own or have explicit, documented permission to test. Unauthorized access or hostile testing against unauthorized infrastructure is strictly prohibited.
+> **AUTHORIZED TESTING AND EVALUATION USE ONLY**  
+> StressX is an autonomous security auditing and adversarial experimentation system designed strictly for authorized penetration testing, vulnerability assessment, and resilience evaluation against applications you own or have explicit, documented authorization to test. Testing against unauthorized infrastructure is strictly prohibited.
 
 ---
 
-## Overview
+## What It Does
 
-**StressX** is an autonomous, AI-driven security auditing platform. Unlike static analysis tools (SAST) or predetermined vulnerability scanners (DAST), StressX functions as an attack-first autonomous agent that:
+**StressX** is an AI-driven autonomous security testing system. It is **not** a passive vulnerability scanner or static linter. StressX actively and safely tests target applications through an adaptive empirical loop:
 
-1. **Deploys and Isolates Target Applications:** Spins up user project directories or vulnerable benchmark targets in resource-bounded Docker sandboxes (with CPU, memory, and network isolation).
-2. **Conducts Active Hypothesis-Driven Attacks:** Formulates concrete security hypotheses (e.g., Broken Object Level Authorization / IDOR, SQL injection, Privilege Escalation, Information Disclosure) rather than running endless passive scans.
-3. **Executes Controlled Testing Cycles:** Dispatches targeted HTTP requests, parses responses, detects behavioral diffs, and observes state mutations.
-4. **Verifies Evidence Empirically:** Generates verifiable, reproducible proof-of-concept runbooks (including exact curl commands, response diffs, and status codes) for every reported finding. Zero fabricated or hallucinated vulnerabilities.
-5. **Maintains Verifiable Metrics & Append-Only Action Logs:** Records exact numerical metrics, HTTP latencies, tool calls, and redacted action trails in persistent JSON dossiers.
+- **Discovers the Target:** Maps endpoints, HTTP methods, OpenAPI/Swagger schemas, input fields, and parameters dynamically.
+- **Builds & Isolates Applications:** Automatically containerizes projects into isolated Docker single-container or multi-service bridge sandboxes with strict CPU, memory, and network boundaries.
+- **Reasons About Weaknesses:** Synthesizes structured security hypotheses covering authorization flaws, injection vulnerabilities, race conditions, and resilience boundaries.
+- **Performs Controlled Attacks:** Dispatches active probes, payload mutations, concurrency bursts, and failure simulations.
+- **Observes Runtime Behavior:** Measures latency inflation, HTTP status codes, error messages, and state mutations.
+- **Adapts Subsequent Tests:** Evaluates test feedback in real time, abandons unproductive avenues, prevents repetitive loops, and pivots toward unverified surfaces.
+- **Verifies Findings Empirically:** Confirms vulnerabilities only when reproducible evidence proves the flaw. Fabricated or speculative findings are strictly rejected.
+- **Collects Evidence:** Automatically captures full HTTP request/response exchanges, calculates causal failure mechanisms, and constructs verifiable `curl` reproduction commands.
+- **Produces Understandable Reports:** Generates executive summaries for stakeholders and expandable technical dossiers with reproduction runbooks for developers.
 
 ---
 
-## Autonomous Attack-First Feedback Loop
+## Architecture
 
-StressX avoids passive scanning loops by executing a strict, progressive test cycle with anti-repetition guards:
+StressX is organized as a decoupled, layered platform:
 
-```mermaid
-flowchart TD
-    A["RECON: Brief Surface & Route Discovery"] --> B["HYPOTHESIS: Formulate Attack Hypothesis"]
-    B --> C["TEST: Controlled Attack Mutation / Tool Call"]
-    C --> D["OBSERVE: Analyze Application Response & Behavior"]
-    D --> E{"Evidence Confirmed?"}
-    E -- "Yes" --> F["VERIFY: Differential Analysis & Reproducibility Check"]
-    E -- "No / Inconclusive" --> B
-    F --> G["EVIDENCE: Commit Verifiable PoC & Curl Runbook"]
-    G --> H{"Target Budget or Findings Complete?"}
-    H -- "More Hypotheses" --> B
-    H -- "Concluded" --> I["COMPLETE: Persist Audit Dossier & Metrics"]
+```text
+React + TypeScript + Vite (Control Dashboard)
+                  ↓ [REST API & SSE Telemetry]
+FastAPI Control Plane (Session Orchestration & State)
+                  ↓
+AI Agent / Controller (Autonomous Reasoning & Anti-Repetition Loop)
+                  ↓
+Controlled Testing Tools (Target-Bounded HTTP & Resilience Execution)
+                  ↓
+Isolated Sandbox (Docker Single-Container or Multi-Service Compose Bridge)
+                  ↓
+Authorized Target Application
 ```
 
+### Component Breakdown
+1. **Frontend (`frontend/`):** A clean, responsive React + TypeScript dashboard built with Vite, Tailwind CSS, and Lucide icons. Communicates with the backend via REST endpoints and a real-time Server-Sent Events (SSE) telemetry stream.
+2. **Control Plane (`app/api/`):** FastAPI application managing project analysis, sandbox deployment lifecycle, live event publishing, and report dossier retrieval. Serves the compiled production React frontend from `app/static/`.
+3. **AI Agent Controller (`app/agent/`):** Drives the multi-phase autonomous attack cycle, manages hypothesis lifecycle, tracks tested endpoints, enforces anti-repetition rules, and triggers pivots when hypotheses stagnate.
+4. **Testing Tools (`app/tools/`):** Sandboxed security experimentation tools enforcing strict network boundaries.
+5. **Target Sandboxing (`app/target/`):** Ephemeral Docker environments enforcing network isolation, port remapping, and memory/CPU limits.
+
 ---
 
-## Core Architecture
+## Attack Capabilities & Test Families
 
-```
-stressx-ai/
-├── app/
-│   ├── agent/                 # Autonomous agent controller & reasoning loop
-│   │   ├── controller.py      # Execution feedback loop with anti-repetition guards
-│   │   └── prompts.py         # System prompt & structured context synthesizer
-│   ├── tools/                 # Controlled security testing tools
-│   │   ├── base.py            # BaseTool with target boundary validation
-│   │   ├── registry.py        # ToolRegistry & boundary sandbox
-│   │   ├── discover_http_surface.py
-│   │   ├── send_http_request.py
-│   │   ├── inspect_http_response.py
-│   │   ├── manage_test_session.py
-│   │   ├── run_browser.py
-│   │   ├── inspect_page.py
-│   │   ├── compare_responses.py
-│   │   ├── record_evidence.py
-│   │   └── finish_audit.py
-│   ├── target/                # Target isolation, sandboxing, and benchmark
-│   │   ├── app.py             # Intentionally vulnerable benchmark application
-│   │   ├── runner.py          # Benchmark process / container lifecycle manager
-│   │   ├── detector.py        # Automatic project framework & port detector
-│   │   └── sandbox.py         # DockerProjectSandbox with strict CPU/RAM limits
-│   ├── evidence/              # Evidence store, report export, and redaction
-│   │   ├── store.py           # Persistent audit dossier & aggregate metrics manager
-│   │   └── redact.py          # Automated scrubbing of JWTs, keys, credentials
-│   ├── models/                # Pydantic domain models
-│   │   ├── target.py          # Target boundary rules (allowed hosts/ports)
-│   │   ├── session.py         # AuditSession state machine & phases
-│   │   ├── metrics.py         # AuditMetrics & AggregateMetrics instrumentation
-│   │   ├── finding.py         # Finding, severity, category, status
-│   │   ├── evidence.py        # Verifiable empirical evidence
-│   │   ├── hypothesis.py      # Security reasoning hypotheses
-│   │   ├── observation.py     # Structured perception of tool results
-│   │   ├── attempt.py         # Attack attempt logs
-│   │   ├── decision.py        # Structured agent decisions
-│   │   └── adapter.py         # LocalModel adapter (Ollama LLaMA 3 & heuristic engine)
-│   ├── api/                   # REST API for audit session management
-│   │   └── server.py          # FastAPI service endpoints
-│   └── __main__.py            # CLI entry point with interactive target selection
-├── sample_projects/           # Realistic sample applications for auditing
-│   └── python_api/            # Intentionally vulnerable FastAPI project
-├── tests/                     # Comprehensive pytest test suite (55+ tests)
-├── Dockerfile                 # Container packaging for StressX
-├── requirements.txt           # Project dependencies
-└── README.md
+StressX tests real-world application security and system design integrity across diverse attack families:
+
+- **Authentication & Authorization Testing:** Probes for missing access controls, unauthenticated administrative routes, token flaws, and Insecure Direct Object References (BOLA/IDOR).
+- **Injection Testing:** Injects targeted SQL syntax delimiters and boolean logic payloads; verifies query tampering via differential response analysis.
+- **Rate-Limit & Abuse Testing:** Deploys adaptive pressure testing to determine throttling thresholds (HTTP 429), measure degradation curves, and verify post-burst recovery.
+- **Idempotency Testing:** Replays mutation requests sequentially and concurrently with identical `Idempotency-Key` headers to detect duplicate database state or unhandled 500 exceptions.
+- **Concurrency & Race Condition Testing:** Dispatches simultaneous concurrent requests against mutation endpoints to observe database lock contention, thread starvation, and state inconsistencies.
+- **Pressure & Load Testing:** Measures baseline latency distributions and escalates request rates to measure response time degradation and server backpressure.
+- **System Resilience & Failure Injection:** Where simulation or control endpoints exist, introduces controlled failure states, assesses downstream health, and verifies automated recovery and rollback.
+- **Worker & Resource Exhaustion Testing:** Evaluates memory, CPU, and worker dispatch behaviors under large payload or batch export operations.
+- **Evidence-Based Verification:** Demands empirical runtime divergence before confirming any finding. No finding is reported without reproducible proof.
+
+---
+
+## Autonomous AI Reasoning Loop
+
+The StressX agent executes an autonomous feedback loop:
+
+```text
+Discover → Hypothesize → Test → Observe → Reason → Adapt → Verify → Record Evidence → Pivot or Complete
 ```
 
----
-
-## Controlled Testing Tools
-
-StressX equips the AI agent with 9 specialized tools strictly bounded by the target scope:
-
-| # | Tool | Description |
-|:---|:---|:---|
-| 1 | `discover_http_surface` | Probes common routes, OpenAPI/Swagger specifications, and API documentation. |
-| 2 | `send_http_request` | Dispatches probes with custom verbs, headers, and payloads; measures response latency and flags anomalies. |
-| 3 | `inspect_http_response` | Performs deep header analysis (CORS, HSTS, CSP), technology disclosures, and secret leakage. |
-| 4 | `manage_test_session` | Authenticates test users, switches identity contexts, and enables multi-tenant authorization testing. |
-| 5 | `run_browser` | Runs client-side DOM rendering to detect dynamic routes and client errors. |
-| 6 | `inspect_page` | Extracts HTML forms, input parameters, and anti-CSRF token protections. |
-| 7 | `compare_responses` | Performs differential analysis between baseline requests and attack mutations. |
-| 8 | `record_evidence` | Links verified empirical HTTP transactions, response previews, and curl commands to a confirmed finding. |
-| 9 | `finish_audit` | Concludes the audit session and compiles statistics. |
+1. **Discover:** Enumerate available routes, documentation, and query surfaces.
+2. **Hypothesize:** Formulate testable assertions with specific security questions and expected indicators.
+3. **Test:** Execute bounded probes using specialized tools.
+4. **Observe:** Capture response status, latency, headers, and body previews.
+5. **Reason:** Evaluate whether the observation supports, contradicts, or leaves the hypothesis inconclusive.
+6. **Adapt:** If an endpoint is non-existent (404) or disallowed (405), immediately drop it and pivot to untested attack surface.
+7. **Verify:** Confirm with follow-up validation or response comparisons.
+8. **Record Evidence:** Persist verified evidence, reproducible `curl` commands, causal failure chains, and remediation guidance.
+9. **Pivot or Complete:** Continue testing until the budgeted steps are exhausted, then conclude and compile the final report.
 
 ---
 
-## Target Sandboxing & Isolation
+## Creator Dashboard
 
-StressX provides two primary modes of operation:
+StressX includes a creator-style web dashboard:
 
-1. **User Project Folder Mode:**
-   - Supply any local directory (e.g. `C:\Projects\my-api`).
-   - Automatically detects framework (`Spring Boot / Maven`, `Spring Boot / Gradle`, `Node.js`, `Python`).
-   - Packages the project in an isolated scratch build context and launches it in a resource-bounded Docker container (`1.0 CPU`, `1024MB RAM`, isolated Docker network).
-   - Monitors container readiness, performs health checks, and guarantees automatic teardown upon audit completion.
-2. **Built-in Vulnerable Benchmark Mode:**
-   - An intentionally vulnerable benchmark application (`app.target.app`) featuring authentic flaws:
-     - Broken Object-Level Authorization (BOLA/IDOR) on user profile endpoints
-     - SQL Injection in search query concatenation
-     - Hardcoded credential and environment variable leaks (`/debug/env`)
-     - Role/header spoofing privilege escalation (`X-Original-Role: admin`)
-     - Unconstrained resource allocation on export endpoints
+- **Target Project Selection:** Select local project directories or test the built-in vulnerable benchmark.
+- **Architectural Complexity Analysis:** Automatically inspects target endpoints, mutation routes, background workers, and multi-service compose topologies to calculate an architectural complexity score (0–100).
+- **Dynamic Step Budgeting:** Recommends an optimal attack-step budget based on target complexity, with an interactive slider override.
+- **Explicit Audit Naming:** Assign custom audit names (with automatic suggestions) to organize and track assessments without silent renaming.
+- **Asynchronous Sandbox Deployment:** Launches container builds asynchronously in the background with real-time stage tracking (`PREPARING_TARGET`, `BUILDING_APPLICATION`, `STARTING_SERVICES`, `CHECKING_READINESS`, `READY`) without freezing the browser.
+- **Real-Time Live Monitor:** Watch the AI agent formulate hypotheses, execute tools, and discover attack surfaces incrementally via live SSE events.
+- **Structured Reports View:** Features an executive summary card, plain-English summary, structured finding cards (What Happened, Impact, Verification, Remediation), and an expandable technical evidence accordion with 1-click `curl` reproduction commands.
+- **Dossier Export:** Export complete structured JSON or Markdown reports.
 
 ---
 
-## Getting Started
+## Safety & Sandboxing
 
-### 1. Installation
+- **Strict Network Boundaries:** All requests are validated against allowed hostnames and IP addresses. Outbound requests to external networks are blocked at the transport layer.
+- **Ephemeral Sandbox Isolation:** Target projects are copied into dedicated scratch contexts before execution. Original source code is never modified.
+- **Resource Constraints:** Containers run with hard limits on CPU cores and memory allocations to protect the host machine.
+- **Sensitive Data Redaction:** All persisted logs and reports automatically redact passwords, API tokens, JWTs, and private keys.
+- **Automatic Failure Rollback:** Fault injection tools automatically execute reset actions to restore normal operation.
 
-```bash
+---
+
+## Setup & Installation
+
+### Prerequisites
+- **Python:** 3.13 or newer
+- **Node.js:** 18 or newer (with npm)
+- **Docker:** Docker Desktop running with Compose support (for sandbox testing)
+- **OS:** Windows 10/11, Linux, or macOS
+
+### Windows Setup Instructions
+
+Open PowerShell and execute:
+
+```powershell
+# 1. Clone the repository
 git clone https://github.com/Ayush5424/StressX.git
 cd StressX
 
+# 2. Create and activate a virtual environment
 python -m venv .venv
-# On Windows:
-.venv\Scripts\activate
-# On Linux/macOS:
-source .venv/bin/activate
+.venv\Scripts\Activate.ps1
 
+# 3. Install Python dependencies
 pip install -r requirements.txt
+
+# 4. Build the React frontend
+cd frontend
+npm install
+npm run build
+cd ..
+
+# 5. Launch the Web Dashboard
+python -m app --web
 ```
 
-### 2. Local AI Model Setup (Optional)
-
-StressX is designed for local open-weight model execution via [Ollama](https://ollama.com/):
-
-```bash
-# Pull and start LLaMA 3
-ollama run llama3
-```
-
-StressX automatically connects to `http://127.0.0.1:11434`. If Ollama is not running, StressX automatically falls back to its deterministic cognitive security reasoning engine.
-
-### 3. Launching an Audit
-
-Run the interactive CLI:
-
-```bash
-python -m app
-```
-
-You will be prompted:
+The web dashboard is available at:
 ```text
-Enter the path to the project folder you want StressX to audit:
-(Or press Enter to test the built-in vulnerable benchmark target):
+http://127.0.0.1:8585
 ```
 
-### 4. Running Automated Tests
+---
 
-Run the comprehensive test suite:
+## AI Model Integration
+
+StressX is designed for local, private open-weight model execution via [Ollama](https://ollama.com/):
+
+### 1. Install & Start Ollama
+1. Download Ollama from [ollama.com](https://ollama.com/).
+2. Pull the recommended security reasoning model:
+   ```powershell
+   ollama pull llama3:8b
+   ```
+3. Ensure the Ollama server is running (defaults to `http://127.0.0.1:11434`).
+
+### 2. Autonomous Fallback Engine
+If Ollama is not running, StressX automatically activates its built-in **Deterministic Autonomous Security Reasoning Engine**, enabling full end-to-end testing, surface mapping, and report generation without requiring a running model daemon.
+
+---
+
+## Development Mode
+
+To run the frontend and backend in active development mode:
+
+### Backend Development Server
+```powershell
+.venv\Scripts\Activate.ps1
+uvicorn app.api.server:api_app --host 127.0.0.1 --port 8000 --reload
+```
+
+### Frontend Hot-Reload Server
+In a separate terminal:
+```powershell
+cd frontend
+npm run dev
+```
+
+The Vite dev server proxies API requests directly to the FastAPI backend.
+
+---
+
+## Running Tests
+
+Execute the comprehensive test suite:
+
+```powershell
+python -m pytest -q
+```
+
+---
+
+## Repository Structure
+
+```text
+StressX/
+├── frontend/                  # React 18 + TypeScript + Vite frontend
+│   ├── src/
+│   │   ├── components/        # Dashboard, ActiveAudit, NewAudit, Reports, Evidence views
+│   │   ├── services/          # API client and Server-Sent Events (SSE) connector
+│   │   ├── types/             # Domain TypeScript interfaces
+│   │   └── App.tsx            # Root application component
+│   ├── package.json           # Frontend dependencies and build scripts
+│   └── vite.config.ts         # Vite build configuration (outputs to app/static/)
+├── app/
+│   ├── agent/                 # Autonomous agent controller and prompt synthesizers
+│   ├── tools/                 # Sandboxed attack, concurrency, and measurement tools
+│   ├── target/                # Sandbox engines, complexity analyzer, and benchmark runner
+│   ├── evidence/              # Evidence store, redaction engine, and dossier export
+│   ├── models/                # Pydantic schemas (config, session, finding, evidence)
+│   ├── api/                   # FastAPI routes, event manager, and audit manager
+│   ├── static/                # Production compiled React bundle served by FastAPI
+│   └── __main__.py            # CLI entry point supporting both terminal and --web modes
+├── sample_projects/           # Target applications for testing and benchmarking
+│   ├── python_api/            # Standalone API sample project
+│   └── compose_postgres_app/  # Multi-service Compose application
+├── tests/                     # Unit, integration, and security test suites
+├── audit_reports/             # Local output folder for generated dossiers (.gitkeep preserved)
+├── .env.example               # Safe environment variable configuration template
+├── requirements.txt           # Python dependencies
+└── README.md                  # Project documentation
+```
+
+---
+
+## Configuration
+
+Copy `.env.example` to `.env` to configure optional environment variables:
 
 ```bash
-pytest tests/ -v
+# AI Engine / Ollama Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+STRESSX_MODEL=llama3:8b
+
+# Server / Web Dashboard Configuration
+STRESSX_WEB_HOST=127.0.0.1
+STRESSX_WEB_PORT=8000
+
+# Logging & Storage
+STRESSX_LOG_LEVEL=INFO
+STRESSX_REPORTS_DIR=audit_reports
 ```
-
----
-
-## Verifiable Evidence & Metrics
-
-Every audit generates a complete, reproducible evidence dossier in `audit_reports/<session_id>/`:
-
-- `report.md`: Executive summary and vulnerability disclosure report.
-- `report.json`: Machine-readable audit summary.
-- `findings.json`: Verified security findings with severity, CVSS category, and reproduction runbooks.
-- `evidence.json`: Exact HTTP request/response artifacts, timestamps, and curl reproduction commands.
-- `metrics.json`: Numeric metrics measuring requests, latencies, hypotheses, findings, and tool calls.
-- `actions.jsonl`: Append-only, sanitized action log of all agent decisions and perceptions.
-
-Cumulative audit metrics are stored idempotently across runs in `audit_reports/aggregate_metrics.json`.
-
----
-
-## Security & Ethics
-
-- **Strict Scope Boundaries:** Target host and port restrictions are enforced at the transport layer. Any outbound request beyond the target boundary is blocked.
-- **Sensitive Data Redaction:** All persisted logs and reports automatically redact passwords, API tokens, JWTs, and private keys.
-- **Resource Constraints:** Containers run with hard limits on CPU cores and memory usage to prevent denial of service on the host system.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

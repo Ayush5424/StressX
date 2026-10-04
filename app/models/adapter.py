@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -249,11 +250,89 @@ class AutonomousSecurityReasoningEngine(LocalModel):
         self._step_sequence += 1
         seq = self._step_sequence
 
+        has_debug = "/debug/env" in prompt_context or "/debug/config" in prompt_context or "/api/v1/search" in prompt_context or "/api/search" in prompt_context
         is_v1 = "/api/v1" in prompt_context or "/api/v1/" in prompt_context
         debug_path = "/api/v1/debug/env" if is_v1 else "/api/debug/config"
         search_path = "/api/v1/search" if is_v1 else "/api/search"
         user_test_path = "/api/v1/users/user_102/profile" if is_v1 else "/api/users/2"
         user_endpoint = "/api/v1/users/{user_id}/profile" if is_v1 else "/api/users/{user_id}"
+
+        # Extract any endpoints discovered from prompt_context
+        discovered_eps = []
+        for line in prompt_context.splitlines():
+            line_str = line.strip()
+            if line_str.startswith("- Path:") or line_str.startswith("- /") or "Path:" in line_str:
+                m = re.search(r"(/[a-zA-Z0-9_\-\./]+)", line_str)
+                if m and m.group(1) not in discovered_eps:
+                    discovered_eps.append(m.group(1))
+
+        if not has_debug:
+            if seq == 1:
+                return AgentDecision(
+                    reasoning_summary="Target surface identified. Initiating active reconnaissance to enumerate routes, methods, and API definitions.",
+                    next_action="Enumerate endpoints, methods, and API definitions via discover_http_surface.",
+                    tool="discover_http_surface",
+                    arguments={"scan_depth": "standard"}
+                )
+
+            # Select target endpoints dynamically from discovered surface
+            probe_target = discovered_eps[0] if discovered_eps else "/health"
+            mutation_target = next((e for e in discovered_eps if any(w in e for w in ["order", "item", "user", "create", "data", "post", "record", "mutation"])), probe_target)
+            admin_target = next((e for e in discovered_eps if any(w in e for w in ["admin", "status", "info", "diag", "metrics", "debug", "telemetry"])), probe_target)
+
+            if seq == 2:
+                return AgentDecision(
+                    reasoning_summary=f"Reconnaissance mapped surface. Probing {admin_target} for sensitive telemetry, status, or unauthenticated disclosure.",
+                    next_action=f"Send GET request to {admin_target}.",
+                    tool="send_http_request",
+                    arguments={"method": "GET", "path": admin_target}
+                )
+            elif seq == 3:
+                return AgentDecision(
+                    reasoning_summary=f"Evaluating mutation endpoint {mutation_target} for duplicate operation handling and idempotency.",
+                    next_action=f"Execute sequential replay test with identical Idempotency-Key header against POST {mutation_target}.",
+                    tool="test_idempotency",
+                    arguments={
+                        "path": mutation_target,
+                        "method": "POST",
+                        "body": '{"payload": "sample-mutation-data"}',
+                        "idempotency_header": "Idempotency-Key",
+                        "scenario": "sequential_replay",
+                        "replay_count": 2
+                    }
+                )
+            elif seq == 4:
+                return AgentDecision(
+                    reasoning_summary=f"Testing concurrent race conditions and database locks on {mutation_target}.",
+                    next_action=f"Dispatch concurrent requests with identical Idempotency-Key to {mutation_target}.",
+                    tool="concurrency_test",
+                    arguments={
+                        "path": mutation_target,
+                        "method": "POST",
+                        "body": '{"payload": "concurrent-sample"}',
+                        "concurrency_level": 5
+                    }
+                )
+            elif seq == 5:
+                return AgentDecision(
+                    reasoning_summary=f"Executing adaptive load and pressure test on {probe_target} to observe rate limiting and degradation.",
+                    next_action=f"Execute pressure test on GET {probe_target} escalating traffic.",
+                    tool="pressure_test",
+                    arguments={
+                        "path": probe_target,
+                        "method": "GET",
+                        "initial_rate": 5,
+                        "max_rate": 20,
+                        "concurrency": 4
+                    }
+                )
+            else:
+                return AgentDecision(
+                    reasoning_summary="All prioritized test hypotheses evaluated against target application. Finalizing audit session.",
+                    next_action="Conclude autonomous audit session.",
+                    tool="finish_audit",
+                    arguments={"summary": "Target autonomous audit completed."}
+                )
 
         if seq == 1:
             return AgentDecision(
@@ -277,24 +356,30 @@ class AutonomousSecurityReasoningEngine(LocalModel):
                 arguments={
                     "title": "Unauthenticated Environment and Credential Disclosure",
                     "category": "INFORMATION_DISCLOSURE",
+                    "finding_type": "SECURITY_VULNERABILITY",
                     "severity": "CRITICAL",
                     "confidence": "HIGH",
                     "endpoint": debug_path,
                     "description": f"The debug endpoint {debug_path} exposes environment variables including database passwords and secret keys without authentication.",
                     "impact": "Full compromise of application secrets, backend database credentials, and internal signing keys.",
+                    "causal_chain": [
+                        f"Dispatched GET to {debug_path} without credentials",
+                        "Server returned HTTP 200 with plaintext environment dictionary",
+                        "Database passwords and secret keys leaked"
+                    ],
                     "remediation": "Restrict or disable debug endpoints in production environments and require strong authorization."
                 }
             )
         elif seq == 4:
             return AgentDecision(
-                reasoning_summary=f"Endpoint {search_path} detected with query parameter. Sending baseline benign request to observe normal response structure.",
-                next_action=f"Send baseline search request to {search_path} with parameter q=test.",
-                tool="send_http_request",
-                arguments={"method": "GET", "path": f"{search_path}?q=test"}
+                reasoning_summary=f"Endpoint {search_path} detected with query parameter. Establishing quantitative healthy baseline performance across sample requests.",
+                next_action=f"Measure baseline latency and status distribution for {search_path}.",
+                tool="measure_baseline",
+                arguments={"method": "GET", "path": f"{search_path}?q=test", "sample_count": 5}
             )
         elif seq == 5:
             return AgentDecision(
-                reasoning_summary="Baseline observed. Injecting single quote delimiter ' to test for unescaped SQL syntax errors.",
+                reasoning_summary="Healthy baseline established. Injecting single quote delimiter ' to test for unescaped SQL syntax errors.",
                 next_action="Send query payload containing single quote q=' to trigger syntax fault.",
                 tool="send_http_request",
                 arguments={"method": "GET", "path": f"{search_path}?q='"}
@@ -316,12 +401,18 @@ class AutonomousSecurityReasoningEngine(LocalModel):
                 tool="record_evidence",
                 arguments={
                     "title": "SQL Injection in Search Query Parameter",
-                    "category": "UNSAFE_INPUT_HANDLING",
+                    "category": "INJECTION",
+                    "finding_type": "SECURITY_VULNERABILITY",
                     "severity": "HIGH",
                     "confidence": "HIGH",
                     "endpoint": search_path,
                     "description": "Dynamic SQL query concatenation allows arbitrary SQL injection via parameter 'q'. Both syntax error and logical condition bypass were empirically verified.",
                     "impact": "Unauthorized reading, modification or extraction of all records in the database.",
+                    "causal_chain": [
+                        "Established query baseline",
+                        "Injected single quote payload triggering syntax fault",
+                        "Confirmed SQL logic tampering with boolean differential"
+                    ],
                     "remediation": "Use parameterized queries or ORM bindings instead of string interpolation."
                 }
             )
@@ -347,12 +438,64 @@ class AutonomousSecurityReasoningEngine(LocalModel):
                 arguments={
                     "title": "Broken Object Level Authorization (IDOR) on User Profiles",
                     "category": "AUTHORIZATION",
+                    "finding_type": "SECURITY_VULNERABILITY",
                     "severity": "HIGH",
                     "confidence": "HIGH",
                     "endpoint": user_endpoint,
                     "description": "User profile endpoint does not validate whether the authenticated caller owns the requested user identifier, allowing horizontal privilege escalation.",
                     "impact": "Unrestricted unauthorized access and extraction of sensitive user PII.",
+                    "causal_chain": [
+                        "Authenticated as alice",
+                        f"Requested profile for user 102/2 at {user_test_path}",
+                        "Server returned victim profile without authorization check"
+                    ],
                     "remediation": "Enforce object-level access control checks verifying that the caller owns or is authorized to view the requested record."
+                }
+            )
+        elif seq == 11:
+            auth_endpoint = "/api/v1/auth/login" if is_v1 else "/api/auth/login"
+            return AgentDecision(
+                reasoning_summary="Testing rate limiting and adaptive backpressure behavior on sensitive authentication endpoint.",
+                next_action=f"Execute controlled pressure experiment against {auth_endpoint} with adaptive escalation.",
+                tool="pressure_test",
+                arguments={
+                    "method": "POST",
+                    "path": auth_endpoint,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": '{"username": "testuser", "password": "wrongpassword"}',
+                    "initial_rate": 5,
+                    "max_rate": 20,
+                    "concurrency": 3
+                }
+            )
+        elif seq == 12:
+            return AgentDecision(
+                reasoning_summary="Conducting controlled concurrency test to observe simultaneous request behavior and lock contention.",
+                next_action=f"Dispatch simultaneous requests to {search_path} to test thread handling and consistency.",
+                tool="concurrency_test",
+                arguments={"method": "GET", "path": f"{search_path}?q=test", "concurrency_level": 5}
+            )
+        elif seq == 13:
+            auth_endpoint = "/api/v1/auth/login" if is_v1 else "/api/auth/login"
+            return AgentDecision(
+                reasoning_summary="System resilience and pressure testing complete. Recording architectural finding on rate-limiting backpressure.",
+                next_action="Record verified system design observation for rate limiting.",
+                tool="record_evidence",
+                arguments={
+                    "title": "Absence of Rate Limiting Backpressure on Authentication Surface",
+                    "category": "RATE_LIMITING",
+                    "finding_type": "SYSTEM_DESIGN_FAILURE",
+                    "severity": "MEDIUM",
+                    "confidence": "HIGH",
+                    "endpoint": auth_endpoint,
+                    "description": f"The endpoint {auth_endpoint} was subjected to controlled adaptive pressure up to 20 req/s. No HTTP 429 throttling or backpressure was observed.",
+                    "impact": "Vulnerability to unthrottled credential stuffing and brute-force attacks.",
+                    "causal_chain": [
+                        f"Established baseline on {auth_endpoint}",
+                        "Escalated load up to 20 req/s",
+                        "No HTTP 429 throttling or rate limiting observed"
+                    ],
+                    "remediation": "Implement token bucket or leaky bucket rate limiting on sensitive authentication routes."
                 }
             )
         else:

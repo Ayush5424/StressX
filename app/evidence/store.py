@@ -58,15 +58,50 @@ class EvidenceStore:
             json.dump(sanitized_evidence, f, indent=2)
 
         # 4. Save report.json (complete summary report)
+        multi_service_meta = None
+        if getattr(session.target, "is_multi_service", False) or session.context_data.get("services_deployed"):
+            multi_service_meta = {
+                "services": session.context_data.get("services_deployed", getattr(session.target, "services", [])),
+                "service_types": session.context_data.get("service_types", {}),
+                "primary_target_service": session.context_data.get("primary_target_service", getattr(session.target, "primary_service", None)),
+                "exposed_application_port": session.target.allowed_ports[0] if session.target.allowed_ports else None,
+                "deployment_status": "SUCCESS" if session.sandbox_deployments > 0 else "FAILED",
+                "cleanup_status": "SUCCESS" if session.sandbox_cleanup_success > 0 else "PENDING_OR_FAILED",
+                "deployment_duration": getattr(session, "deployment_duration", 0.0)
+            }
+
+        audit_name = getattr(session, "audit_name", None) or session.context_data.get("audit_name", "Security Audit")
+        target_name = getattr(session, "target_name", None) or getattr(session.target, "name", "Target Application")
+        sev_counts = self._get_severity_counts(session)
+        highest_sev = "INFO"
+        for s in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
+            if sev_counts.get(s, 0) > 0:
+                highest_sev = s
+                break
+
+        dur_secs = metrics.duration_seconds
+        dur_mins = int(dur_secs // 60)
+        dur_rem = int(dur_secs % 60)
+        duration_str = f"{dur_mins}m {dur_rem}s" if dur_mins > 0 else f"{dur_rem}s"
+
         report_file = audit_dir / "report.json"
         report_data = {
             "audit_id": session.id,
+            "audit_name": audit_name,
+            "target_name": target_name,
             "target": redact_dict(session.target.model_dump()),
             "status": session.status.value,
             "start_time": session.start_time,
             "end_time": session.end_time,
+            "duration": duration_str,
+            "duration_seconds": dur_secs,
+            "step_count": session.step_count,
+            "total_steps": session.step_count,
             "metrics": metrics.model_dump(),
+            "multi_service": multi_service_meta,
             "findings_count": len(session.findings),
+            "highest_severity": highest_sev,
+            "severity_breakdown": sev_counts,
             "findings": sanitized_findings,
             "hypotheses": [redact_dict(h.model_dump()) for h in session.hypotheses]
         }
@@ -157,16 +192,20 @@ class EvidenceStore:
         name = filename or (f"security_report_{session.id}.md" if target_dir is None else "report.md")
         target_path = base_dir / name
 
+        audit_name = getattr(session, "audit_name", None) or session.context_data.get("audit_name", "Security Assessment")
+        target_name = getattr(session, "target_name", None) or getattr(session.target, "name", "Target Application")
+
         lines = [
-            f"# StressX Autonomous Security Assessment Report",
-            f"**Session ID:** `{session.id}`  ",
-            f"**Target Application:** `{session.target.base_url}`  ",
+            f"# {audit_name}",
+            "### StressX Autonomous Security Assessment Report",
+            f"**Audit ID:** `{session.id}`  ",
+            f"**Target:** {target_name} (`{session.target.base_url}`)  ",
             f"**Audit Status:** `{session.status.value}`  ",
             f"**Execution Steps:** {session.step_count}  ",
             f"**Report Generated:** {session.end_time or session.start_time}  ",
             "",
             "## 1. Executive Summary",
-            f"StressX completed an autonomous, empirical security evaluation of target `{session.target.base_url}`. "
+            f"StressX completed an autonomous, empirical security evaluation of **{target_name}** (`{session.target.base_url}`). "
             f"A total of **{len(session.findings)}** vulnerability findings were discovered, tested, and empirically confirmed.",
             "",
             "### Finding Breakdown by Severity",
@@ -177,6 +216,16 @@ class EvidenceStore:
         sev_counts = self._get_severity_counts(session)
         for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
             lines.append(f"| **{sev}** | {sev_counts.get(sev, 0)} |")
+
+        if getattr(session.target, "is_multi_service", False):
+            srv_list = ", ".join(getattr(session.target, "services", []))
+            lines.extend([
+                "",
+                "### Multi-Service Compose Architecture",
+                f"- **Primary Application Target:** `{session.target.primary_service}`",
+                f"- **Services in Stack:** `{srv_list}`",
+                f"- **Network Boundary:** Dedicated isolated network with unexposed internal data stores (PostgreSQL/Redis)."
+            ])
 
         lines.extend([
             "",

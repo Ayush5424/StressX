@@ -70,12 +70,34 @@ class AuditMetrics(BaseModel):
     
     sandbox_deployments: int = 0
     sandbox_cleanup_success: int = 0
+    successful_deployments: int = 0
+    deployment_failures: int = 0
+    successful_cleanups: int = 0
+    cleanup_failures: int = 0
+    services_deployed: int = 0
+    primary_target_service: Optional[str] = None
+    deployment_duration: float = 0.0
     
     authentication_tests: int = 0
     authorization_tests: int = 0
     injection_tests: int = 0
     information_disclosure_tests: int = 0
+    rate_limiting_tests: int = 0
+    concurrency_tests: int = 0
+    resource_exhaustion_tests: int = 0
+    system_resilience_tests: int = 0
+    input_validation_tests: int = 0
     other_security_tests: int = 0
+    
+    baseline_requests: int = 0
+    rate_limit_responses: int = 0
+    max_concurrency_tested: int = 0
+    max_request_rate_tested: float = 0.0
+    degradation_events_detected: int = 0
+    recovery_verifications_passed: int = 0
+    average_baseline_latency_ms: float = 0.0
+    average_stressed_latency_ms: float = 0.0
+    status_distribution: dict[str, int] = Field(default_factory=dict)
     
     average_http_latency_ms: float = 0.0
     total_http_latency_ms: float = 0.0
@@ -150,20 +172,82 @@ class AuditMetrics(BaseModel):
 
         # 8. Reconnaissance vs Active Testing Steps
         recon_tools = {"discover_http_surface", "inspect_http_response", "inspect_page"}
-        active_tools = {"send_http_request", "manage_test_session", "compare_responses", "run_browser", "record_evidence"}
+        active_tools = {
+            "send_http_request", "manage_test_session", "compare_responses",
+            "run_browser", "record_evidence", "measure_baseline", "pressure_test", "concurrency_test"
+        }
         
         recon_steps = 0
         active_steps = 0
         verification_attempts = 0
         unique_endpoints_tested_set = set()
 
+        # Experiment tracking
+        rate_limit_responses = 0
+        baseline_requests = 0
+        max_concurrency = 1
+        max_request_rate = 0.0
+        degradation_events = 0
+        recovery_verifications = 0
+        baseline_latencies = []
+        stressed_latencies = []
+        status_dist: dict[str, int] = {}
+
         for obs in session.observations:
+            raw = obs.raw_data or {}
             if obs.tool in recon_tools:
                 recon_steps += 1
             elif obs.tool in active_tools:
                 active_steps += 1
-            if obs.tool == "compare_responses":
+            if obs.tool in ("compare_responses", "pressure_test", "concurrency_test"):
                 verification_attempts += 1
+
+            # Count requests from batch tools
+            if "total_requests" in raw and isinstance(raw["total_requests"], (int, float)):
+                http_requests += int(raw["total_requests"])
+            elif "requests_sent" in raw and isinstance(raw["requests_sent"], (int, float)):
+                http_requests += int(raw["requests_sent"])
+
+            # Status distribution from observation
+            sc = raw.get("status_code")
+            if sc:
+                sc_str = str(sc)
+                status_dist[sc_str] = status_dist.get(sc_str, 0) + 1
+                if sc == 429:
+                    rate_limit_responses += 1
+
+            if "status_distribution" in raw and isinstance(raw["status_distribution"], dict):
+                for k, v in raw["status_distribution"].items():
+                    k_str = str(k)
+                    status_dist[k_str] = status_dist.get(k_str, 0) + int(v)
+                    if k_str == "429":
+                        rate_limit_responses += int(v)
+
+            if obs.tool == "measure_baseline":
+                samples = raw.get("sample_count") or raw.get("samples_count") or 5
+                baseline_requests += int(samples)
+                if "mean_latency_ms" in raw:
+                    baseline_latencies.append(float(raw["mean_latency_ms"]))
+
+            if obs.tool == "pressure_test":
+                if raw.get("concurrency"):
+                    max_concurrency = max(max_concurrency, int(raw["concurrency"]))
+                if raw.get("peak_rate") or raw.get("max_rate"):
+                    rate_val = float(raw.get("peak_rate") or raw.get("max_rate"))
+                    max_request_rate = max(max_request_rate, rate_val)
+                if raw.get("degradation_detected"):
+                    degradation_events += 1
+                if raw.get("recovery_verified"):
+                    recovery_verifications += 1
+                if "mean_latency_ms" in raw:
+                    stressed_latencies.append(float(raw["mean_latency_ms"]))
+
+            if obs.tool == "concurrency_test":
+                if raw.get("concurrency_level"):
+                    max_concurrency = max(max_concurrency, int(raw["concurrency_level"]))
+                if raw.get("errors_detected") or raw.get("race_condition_detected"):
+                    degradation_events += 1
+
             if obs.tool in active_tools and obs.target:
                 from urllib.parse import urlparse
                 parsed = urlparse(obs.target)
@@ -189,6 +273,11 @@ class AuditMetrics(BaseModel):
         authz_tests = 0
         inj_tests = 0
         info_tests = 0
+        rate_tests = 0
+        concurrency_tests = 0
+        resource_tests = 0
+        resilience_tests = 0
+        input_val_tests = 0
         other_tests = 0
 
         for att in session.attack_attempts:
@@ -196,7 +285,14 @@ class AuditMetrics(BaseModel):
             action_str = (att.action_summary or "").lower()
             tool_str = (att.tool or "").lower()
 
-            if "login" in target_str or "auth" in target_str or tool_str == "manage_test_session":
+            if tool_str == "pressure_test" or "rate" in action_str:
+                rate_tests += 1
+                resilience_tests += 1
+            elif tool_str == "concurrency_test" or "concurrent" in action_str or "race" in action_str:
+                concurrency_tests += 1
+            elif "payload" in action_str or "exhaustion" in action_str:
+                resource_tests += 1
+            elif "login" in target_str or "auth" in target_str or tool_str == "manage_test_session":
                 authn_tests += 1
             elif "user" in target_str or "profile" in target_str or "admin" in target_str or "role" in action_str:
                 authz_tests += 1
@@ -204,8 +300,23 @@ class AuditMetrics(BaseModel):
                 inj_tests += 1
             elif "debug" in target_str or "env" in target_str or "leak" in action_str:
                 info_tests += 1
+            elif "validation" in action_str or "boundary" in action_str:
+                input_val_tests += 1
             else:
                 other_tests += 1
+
+        # Also inspect observations for tool counts if not logged in attempts
+        for obs in session.observations:
+            if obs.tool == "pressure_test" and rate_tests == 0:
+                rate_tests += 1
+                resilience_tests += 1
+            elif obs.tool == "concurrency_test" and concurrency_tests == 0:
+                concurrency_tests += 1
+            elif obs.tool == "measure_baseline":
+                other_tests += 1
+
+        avg_base_lat = round(sum(baseline_latencies) / len(baseline_latencies), 2) if baseline_latencies else 0.0
+        avg_stress_lat = round(sum(stressed_latencies) / len(stressed_latencies), 2) if stressed_latencies else 0.0
 
         resolved_project_type = project_type or session.context_data.get("project_type", "BENCHMARK")
 
@@ -218,6 +329,15 @@ class AuditMetrics(BaseModel):
         sandbox_clean = session.sandbox_cleanup_success
         if sandbox_clean == 0 and session.target and getattr(session.target, "sandbox_cleanup_success", False):
             sandbox_clean = 1
+
+        successful_dep = sandbox_dep
+        deployment_fail = 1 if session.context_data.get("deployment_failed", False) else 0
+        successful_clean = sandbox_clean
+        cleanup_fail = 1 if session.context_data.get("cleanup_failed", False) else 0
+
+        srv_deployed = session.services_deployed or len(session.context_data.get("services_deployed", []))
+        prim_target_srv = session.primary_target_service or session.context_data.get("primary_target_service")
+        dep_duration = session.deployment_duration or float(session.context_data.get("deployment_duration", 0.0))
 
         return cls(
             audit_id=session.id,
@@ -258,11 +378,32 @@ class AuditMetrics(BaseModel):
             model_decisions=session.step_count,
             sandbox_deployments=sandbox_dep,
             sandbox_cleanup_success=sandbox_clean,
+            successful_deployments=successful_dep,
+            deployment_failures=deployment_fail,
+            successful_cleanups=successful_clean,
+            cleanup_failures=cleanup_fail,
+            services_deployed=srv_deployed,
+            primary_target_service=prim_target_srv,
+            deployment_duration=dep_duration,
             authentication_tests=authn_tests,
             authorization_tests=authz_tests,
             injection_tests=inj_tests,
             information_disclosure_tests=info_tests,
+            rate_limiting_tests=rate_tests,
+            concurrency_tests=concurrency_tests,
+            resource_exhaustion_tests=resource_tests,
+            system_resilience_tests=resilience_tests,
+            input_validation_tests=input_val_tests,
             other_security_tests=other_tests,
+            baseline_requests=baseline_requests,
+            rate_limit_responses=rate_limit_responses,
+            max_concurrency_tested=max_concurrency,
+            max_request_rate_tested=round(max_request_rate, 2),
+            degradation_events_detected=degradation_events,
+            recovery_verifications_passed=recovery_verifications,
+            average_baseline_latency_ms=avg_base_lat,
+            average_stressed_latency_ms=avg_stress_lat,
+            status_distribution=status_dist,
             average_http_latency_ms=avg_latency,
             total_http_latency_ms=total_latency
         )
@@ -285,7 +426,18 @@ class AggregateMetrics(BaseModel):
     total_repeated_actions_prevented: int = 0
     total_sandbox_deployments: int = 0
     total_successful_sandbox_cleanups: int = 0
+    total_services_deployed: int = 0
+    total_deployment_failures: int = 0
+    total_cleanup_failures: int = 0
     total_tool_calls: int = 0
+    total_rate_limiting_tests: int = 0
+    total_concurrency_tests: int = 0
+    total_resource_exhaustion_tests: int = 0
+    total_system_resilience_tests: int = 0
+    total_rate_limit_responses: int = 0
+    total_baseline_requests: int = 0
+    total_degradation_events: int = 0
+    total_recovery_verifications: int = 0
     audited_ids: list[str] = Field(default_factory=list)
     unique_targets: list[str] = Field(default_factory=list)
     audited_runs: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -313,7 +465,18 @@ class AggregateMetrics(BaseModel):
             self.total_repeated_actions_prevented += m.repeated_actions_prevented
             self.total_sandbox_deployments += m.sandbox_deployments
             self.total_successful_sandbox_cleanups += m.sandbox_cleanup_success
+            self.total_services_deployed += m.services_deployed
+            self.total_deployment_failures += m.deployment_failures
+            self.total_cleanup_failures += m.cleanup_failures
             self.total_tool_calls += m.tool_calls
+            self.total_rate_limiting_tests += m.rate_limiting_tests
+            self.total_concurrency_tests += m.concurrency_tests
+            self.total_resource_exhaustion_tests += m.resource_exhaustion_tests
+            self.total_system_resilience_tests += m.system_resilience_tests
+            self.total_rate_limit_responses += m.rate_limit_responses
+            self.total_baseline_requests += m.baseline_requests
+            self.total_degradation_events += m.degradation_events_detected
+            self.total_recovery_verifications += m.recovery_verifications_passed
             self.audited_runs[m.audit_id] = m.model_dump()
             return True
 
@@ -323,18 +486,36 @@ class AggregateMetrics(BaseModel):
             delta_cleanups = m.sandbox_cleanup_success
             self.total_sandbox_deployments += delta_deployments
             self.total_successful_sandbox_cleanups += delta_cleanups
+            self.total_services_deployed += m.services_deployed
+            self.total_deployment_failures += m.deployment_failures
+            self.total_cleanup_failures += m.cleanup_failures
+            self.total_rate_limiting_tests += m.rate_limiting_tests
+            self.total_concurrency_tests += m.concurrency_tests
+            self.total_resource_exhaustion_tests += m.resource_exhaustion_tests
+            self.total_system_resilience_tests += m.system_resilience_tests
+            self.total_rate_limit_responses += m.rate_limit_responses
+            self.total_baseline_requests += m.baseline_requests
+            self.total_degradation_events += m.degradation_events_detected
+            self.total_recovery_verifications += m.recovery_verifications_passed
             self.audited_runs[m.audit_id] = m.model_dump()
             return (delta_deployments > 0 or delta_cleanups > 0)
 
         delta_deployments = m.sandbox_deployments - prev.get("sandbox_deployments", 0)
         delta_cleanups = m.sandbox_cleanup_success - prev.get("sandbox_cleanup_success", 0)
         delta_steps = m.total_steps - prev.get("total_steps", 0)
+        delta_services = m.services_deployed - prev.get("services_deployed", 0)
+        delta_dep_fail = m.deployment_failures - prev.get("deployment_failures", 0)
+        delta_clean_fail = m.cleanup_failures - prev.get("cleanup_failures", 0)
 
-        if delta_deployments == 0 and delta_cleanups == 0 and delta_steps == 0:
+        if (delta_deployments == 0 and delta_cleanups == 0 and delta_steps == 0
+                and delta_services == 0 and delta_dep_fail == 0 and delta_clean_fail == 0):
             return False
 
         self.total_sandbox_deployments += delta_deployments
         self.total_successful_sandbox_cleanups += delta_cleanups
         self.total_steps += delta_steps
+        self.total_services_deployed += delta_services
+        self.total_deployment_failures += delta_dep_fail
+        self.total_cleanup_failures += delta_clean_fail
         self.audited_runs[m.audit_id] = m.model_dump()
         return True

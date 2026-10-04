@@ -32,7 +32,7 @@ class SendHttpRequestTool(BaseTool):
         method = kwargs.get("method", "GET").upper()
         path = kwargs.get("path", "/")
         headers = kwargs.get("headers", {}) or {}
-        params = kwargs.get("params", {}) or {}
+        params = kwargs.get("params") or None
         body = kwargs.get("body")
         timeout_seconds = float(kwargs.get("timeout_seconds", 8.0))
 

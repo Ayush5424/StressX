@@ -143,26 +143,21 @@ class DockerProjectSandbox:
     def _prepare_build_context(self) -> None:
         """Copies project files and ensures an appropriate Dockerfile exists."""
         src_path = Path(self.project_info.project_path)
-        dest_path = self.temp_build_dir / "src"
+        dest_path = self.temp_build_dir
 
         # Copy files excluding giant or unnecessary folders
         def ignore_patterns(folder, contents):
             ignored = set()
             for c in contents:
-                if c in (".git", "node_modules", "target", "build", ".gradle", "__pycache__", ".venv", "venv"):
+                if c in (".git", "node_modules", "target", "build", ".gradle", "__pycache__", ".venv", "venv", ".idea"):
                     ignored.add(c)
             return ignored
 
         shutil.copytree(src_path, dest_path, ignore=ignore_patterns, dirs_exist_ok=True)
 
-        # Generate Dockerfile in build root
+        # Generate Dockerfile in build root if not present
         dockerfile_path = self.temp_build_dir / "Dockerfile"
-        existing_dockerfile = src_path / "Dockerfile"
-
-        if existing_dockerfile.exists():
-            # Use user's own Dockerfile if provided
-            shutil.copy2(existing_dockerfile, dockerfile_path)
-        else:
+        if not dockerfile_path.exists():
             dockerfile_content = self._generate_dockerfile()
             with open(dockerfile_path, "w", encoding="utf-8") as f:
                 f.write(dockerfile_content)
@@ -174,7 +169,7 @@ class DockerProjectSandbox:
         if ptype == ProjectType.SPRING_BOOT_MAVEN:
             return f"""FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /build
-COPY src/ /build/
+COPY . /build/
 RUN mvn clean package -DskipTests --batch-mode
 
 FROM eclipse-temurin:21-jre-alpine
@@ -186,7 +181,7 @@ CMD ["java", "-jar", "/app/app.jar"]
         elif ptype == ProjectType.SPRING_BOOT_GRADLE:
             return f"""FROM gradle:8.5-jdk21-alpine AS builder
 WORKDIR /build
-COPY src/ /build/
+COPY . /build/
 RUN gradle bootJar --no-daemon -x test
 
 FROM eclipse-temurin:21-jre-alpine
@@ -199,9 +194,9 @@ CMD ["java", "-jar", "/app/app.jar"]
             entry = self.project_info.entrypoint_hint or "index.js"
             return f"""FROM node:20-alpine
 WORKDIR /app
-COPY src/package*.json ./
+COPY package*.json ./
 RUN npm install --production || npm install
-COPY src/ ./
+COPY . ./
 EXPOSE {port}
 CMD ["npm", "start"]
 """
@@ -209,12 +204,14 @@ CMD ["npm", "start"]
             entry = self.project_info.entrypoint_hint or "app.py"
             return f"""FROM python:3.13-slim
 WORKDIR /app
-COPY src/requirements.txt* ./
+COPY requirements.txt* ./
 RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
-COPY src/ ./
+COPY . ./
 EXPOSE {port}
 CMD ["python", "{entry}"]
 """
+        elif ptype == ProjectType.DOCKERFILE:
+            return ""
         raise ValueError(f"No Dockerfile template for project type {ptype}")
 
     def wait_until_ready(self) -> bool:

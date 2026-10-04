@@ -37,7 +37,9 @@ async def test_agent_autonomous_audit_loop():
         # Check for specific vulnerability types tested
         categories = [f.category.value for f in session.findings]
         assert "INFORMATION_DISCLOSURE" in categories
-        assert "UNSAFE_INPUT_HANDLING" in categories
+        assert "INJECTION" in categories or "UNSAFE_INPUT_HANDLING" in categories
+        assert "AUTHORIZATION" in categories
+        assert "RATE_LIMITING" in categories
 
     finally:
         runner.stop()

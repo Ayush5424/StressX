@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 import logging
 from pathlib import Path
@@ -22,6 +23,7 @@ from app.models.session import SessionStatus
 from app.target.runner import TargetRunner
 from app.target.detector import ProjectDetector, ProjectType, ProjectDetectionError
 from app.target.sandbox import DockerProjectSandbox, DockerSandboxError
+from app.target.compose_sandbox import ComposeProjectSandbox, ComposeSandboxError
 from app.agent.controller import AgentController
 from app.evidence.store import EvidenceStore
 
@@ -50,25 +52,46 @@ def render_step_callback(step: int, decision: AgentDecision, observation: Observ
 
 
 async def main():
+    if any(arg in sys.argv for arg in ("--web", "--dashboard", "serve", "-w")):
+        import uvicorn
+        port = 8585
+        for arg in sys.argv:
+            if arg.startswith("--port="):
+                try:
+                    port = int(arg.split("=")[1])
+                except Exception:
+                    pass
+        console.print(f"[bold cyan]Launching StressX Web Dashboard on http://127.0.0.1:{port} ...[/bold cyan]")
+        config = uvicorn.Config("app.api.server:api_app", host="127.0.0.1", port=port, log_level="info")
+        server = uvicorn.Server(config)
+        await server.serve()
+        return
+
     console.print(Panel.fit(
         "[bold red]StressX[/bold red] - [bold white]Autonomous AI Security Testing Agent[/bold white]\n"
         "[italic cyan]Empirical Closed-Loop Security Auditing for Software Projects[/italic cyan]",
         border_style="red"
     ))
 
-    # 1. Interactive Project Selection
-    console.print("\n[bold yellow]Enter the path to the project folder you want StressX to audit:[/bold yellow]")
-    console.print("[dim]Example: C:\\Users\\dell\\Downloads\\MyProject[/dim]")
-    console.print("[dim](Or press Enter to test the built-in vulnerable benchmark target):[/dim] ", end="")
-    
-    try:
-        user_input = input().strip()
-    except (EOFError, KeyboardInterrupt):
-        console.print("\n[yellow]Audit canceled by user.[/yellow]")
-        return
+    # 1. Project Selection (CLI argument, environment variable, or interactive)
+    user_input = ""
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
+        user_input = sys.argv[1].strip()
+    elif os.environ.get("STRESSX_TARGET_DIR"):
+        user_input = os.environ.get("STRESSX_TARGET_DIR", "").strip()
+    else:
+        console.print("\n[bold yellow]Enter the path to the project folder you want StressX to audit:[/bold yellow]")
+        console.print("[dim]Example: C:\\Projects\\MyProject or ./sample_projects/python_api[/dim]")
+        console.print("[dim](Or press Enter to test the built-in vulnerable benchmark target):[/dim] ", end="")
+        try:
+            user_input = input().strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[yellow]Audit canceled by user.[/yellow]")
+            return
 
     runner: TargetRunner | None = None
     sandbox: DockerProjectSandbox | None = None
+    compose_sandbox: ComposeProjectSandbox | None = None
     session = None
     store = None
     resolved_proj = "BENCHMARK"
@@ -96,6 +119,7 @@ async def main():
                     f"[bold red]Unsupported Project Type:[/bold red]\n"
                     f"Could not identify a supported project structure in '{folder_path}'.\n\n"
                     f"[yellow]Currently supported project types for Docker sandboxing:[/yellow]\n"
+                    f"  - Docker Compose (compose.yaml / docker-compose.yml)\n"
                     f"  - Spring Boot / Maven (pom.xml)\n"
                     f"  - Spring Boot / Gradle (build.gradle / build.gradle.kts)\n"
                     f"  - Node.js (package.json)\n"
@@ -109,37 +133,75 @@ async def main():
             if project_info.build_file:
                 console.print(f"[dim]    Build descriptor: {project_info.build_file}[/dim]")
 
-            # Port detection
-            target_port = project_info.detected_port
-            if target_port:
-                console.print(f"[bold green][+] Detected listening port:[/bold green] {target_port}")
-            else:
-                console.print("[yellow][!] Could not automatically detect listening port.[/yellow]")
-                console.print("Enter the application listening port [default: 8080]: ", end="")
-                try:
-                    port_str = input().strip()
-                    target_port = int(port_str) if port_str.isdigit() else 8080
-                except Exception:
-                    target_port = 8080
+            # 2. Build and launch isolated Docker sandbox (Multi-Service or Single Container)
+            if project_info.project_type == ProjectType.DOCKER_COMPOSE:
+                console.print(f"\n[bold cyan][*] Multi-Service Docker Compose Stack Detected:[/bold cyan]")
+                for s in project_info.services:
+                    stype = project_info.service_types.get(s, "application")
+                    is_prim = " [bold green](Primary Target)[/bold green]" if s == project_info.primary_service else " [dim](Internal Dependency)[/dim]"
+                    console.print(f"    - [yellow]{s}[/yellow] [{stype}]{is_prim}")
 
-            # 2. Build and launch isolated Docker sandbox
-            console.print(f"\n[bold yellow][*] Building and starting isolated Docker sandbox...[/bold yellow]")
-            console.print(f"[dim]    Resource boundaries: CPU=1.0, Memory=1024MB, Network=stressx-sandbox-net[/dim]")
-            sandbox = DockerProjectSandbox(
-                project_info=project_info,
-                target_port=target_port,
-                cpu_limit=1.0,
-                memory_limit_mb=1024
-            )
-            target = sandbox.build_and_start()
+                target_service = project_info.primary_service
+                target_port = project_info.detected_port or 8080
+
+                console.print(f"\n[bold yellow][*] Building and starting isolated Docker Compose sandbox...[/bold yellow]")
+                console.print(f"[dim]    Isolating stack: Service '{target_service}' mapped to 127.0.0.1. Internal services unexposed.[/dim]")
+                compose_sandbox = ComposeProjectSandbox(
+                    project_info=project_info,
+                    target_service=target_service,
+                    target_port=target_port,
+                    cpu_limit=1.0,
+                    memory_limit_mb=1024
+                )
+                target = compose_sandbox.build_and_start()
+            else:
+                # Port detection for single container
+                target_port = project_info.detected_port
+                if target_port:
+                    console.print(f"[bold green][+] Detected listening port:[/bold green] {target_port}")
+                else:
+                    console.print("[yellow][!] Could not automatically detect listening port.[/yellow]")
+                    console.print("Enter the application listening port [default: 8080]: ", end="")
+                    try:
+                        port_str = input().strip()
+                        target_port = int(port_str) if port_str.isdigit() else 8080
+                    except Exception:
+                        target_port = 8080
+
+                console.print(f"\n[bold yellow][*] Building and starting isolated Docker sandbox...[/bold yellow]")
+                console.print(f"[dim]    Resource boundaries: CPU=1.0, Memory=1024MB, Network=stressx-sandbox-net[/dim]")
+                sandbox = DockerProjectSandbox(
+                    project_info=project_info,
+                    target_port=target_port,
+                    cpu_limit=1.0,
+                    memory_limit_mb=1024
+                )
+                target = sandbox.build_and_start()
 
         console.print(f"[dim]    Target Boundary Enforcement: Permitted hosts = {target.allowed_hosts}, Ports = {target.allowed_ports}[/dim]\n")
 
-        # 3. Launch Autonomous Security Agent
-        console.print("[bold yellow][*] Launching StressX Autonomous Agent Controller...[/bold yellow]\n")
+        # 3. Launch Autonomous Security Agent with Dynamic Step Budget
+        from app.target.complexity import ComplexityAnalyzer
+        complexity = None
+        if user_input and Path(user_input).exists():
+            try:
+                complexity = ComplexityAnalyzer.analyze(user_input, project_info if 'project_info' in locals() else None)
+            except Exception:
+                pass
+
+        max_steps = complexity.recommended_steps if complexity else 25
+        if os.environ.get("STRESSX_MAX_STEPS"):
+            try:
+                max_steps = int(os.environ.get("STRESSX_MAX_STEPS"))
+            except Exception:
+                pass
+
+        if complexity:
+            console.print(f"[bold cyan][*] Target Complexity: {complexity.level.value} (Score: {complexity.score}/100) | Recommended Steps: {complexity.recommended_steps}[/bold cyan]")
+        console.print(f"[bold yellow][*] Launching StressX Autonomous Agent Controller (Budget: {max_steps} steps)...[/bold yellow]\n")
         controller = AgentController(
             target=target,
-            max_steps=20,
+            max_steps=max_steps,
             step_callback=render_step_callback
         )
 
@@ -216,7 +278,7 @@ async def main():
         console.print(f"[bold cyan][+] Cumulative metrics updated at:[/bold cyan] {store.export_dir / 'aggregate_metrics.json'}")
         console.print(f"[bold cyan][+] Total Verified Findings: {len(session.findings)}[/bold cyan]")
 
-    except DockerSandboxError as de:
+    except (DockerSandboxError, ComposeSandboxError) as de:
         console.print(Panel(
             f"[bold red]Docker Sandbox Deployment Failed:[/bold red]\n{de}",
             title="Sandbox Error",
@@ -237,6 +299,11 @@ async def main():
             cleaned_up = sandbox.cleanup()
             is_sandboxed_target = True
             console.print("[green][+] Sandbox container and artifacts destroyed.[/green]")
+        if compose_sandbox:
+            console.print("\n[yellow][*] Tearing down multi-service Docker Compose stack...[/yellow]")
+            cleaned_up = compose_sandbox.cleanup()
+            is_sandboxed_target = True
+            console.print("[green][+] Multi-service sandbox destroyed.[/green]")
 
         if session is not None and is_sandboxed_target:
             session.record_sandbox_cleanup(cleaned_up)
