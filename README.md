@@ -76,6 +76,23 @@ StressX tests real-world application security and system design integrity across
 
 The StressX agent executes an autonomous feedback loop:
 
+```mermaid
+flowchart TD
+    A["RECON: Surface & Route Discovery"] --> B["HYPOTHESIS: Formulate Attack Hypothesis"]
+    B --> C["TEST: Controlled Attack Mutation / Tool Call"]
+    C --> D["OBSERVE: Analyze Application Response & Behavior"]
+    D --> E{"Evidence Confirmed?"}
+    E -- "Yes" --> F["VERIFY: Differential Analysis & Reproducibility Check"]
+    E -- "No / Inconclusive" --> G{"Hypothesis Stagnated or 404/405?"}
+    G -- "Yes" --> H["PIVOT: Drop Route & Select Untested Surface"]
+    H --> B
+    G -- "No" --> B
+    F --> I["EVIDENCE: Commit Verifiable PoC & Curl Runbook"]
+    I --> J{"Step Budget or Scope Complete?"}
+    J -- "Continue Testing" --> B
+    J -- "Concluded" --> K["COMPLETE: Persist Audit Dossier & Reports"]
+```
+
 ```text
 Discover → Hypothesize → Test → Observe → Reason → Adapt → Verify → Record Evidence → Pivot or Complete
 ```
