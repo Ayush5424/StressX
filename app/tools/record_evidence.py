@@ -156,7 +156,7 @@ class RecordEvidenceTool(BaseTool):
                 return False
             if "request" in r and "status_code" in r:
                 return True
-            if o.tool in ("pressure_test", "concurrency_test", "test_idempotency", "inject_failure") and (r.get("samples") or r.get("baseline_latency_ms") or r.get("status_distribution")):
+            if o.tool in ("pressure_test", "concurrency_test", "test_idempotency", "inject_failure", "audit_access_control", "test_input_boundaries"):
                 return True
             return False
 
@@ -217,6 +217,34 @@ class RecordEvidenceTool(BaseTool):
             evidence_items.append(evidence)
             session.add_evidence(evidence)
             curl_step = evidence.curl_command or ""
+        elif target_obs.tool == "audit_access_control":
+            resolved_url = session.target.resolve_url(endpoint)
+            evidence = Evidence(
+                evidence_type="ACCESS_CONTROL_AUDIT",
+                description=f"Empirical authorization matrix evaluation on {endpoint}",
+                request_summary=f"Access control audit across identity states against {endpoint}",
+                response_summary=target_obs.summary,
+                curl_command=f"curl -i '{resolved_url}'",
+                verified=True,
+                observed_behavior=target_obs.summary
+            )
+            evidence_items.append(evidence)
+            session.add_evidence(evidence)
+            curl_step = evidence.curl_command or ""
+        elif target_obs.tool == "test_input_boundaries":
+            resolved_url = session.target.resolve_url(endpoint)
+            evidence = Evidence(
+                evidence_type="INPUT_VALIDATION_EXPERIMENT",
+                description=f"Input boundary & robustness evaluation on {endpoint}",
+                request_summary=f"Boundary fuzzing on {endpoint}",
+                response_summary=target_obs.summary,
+                curl_command=f"curl -i -X POST '{resolved_url}' -H 'Content-Type: application/json' -d '{{\"quantity\": -1}}'",
+                verified=True,
+                observed_behavior=target_obs.summary
+            )
+            evidence_items.append(evidence)
+            session.add_evidence(evidence)
+            curl_step = evidence.curl_command or ""
         elif "request" in matched_obs_raw and "status_code" in matched_obs_raw:
             req = matched_obs_raw["request"]
             req_url = req.get("url", endpoint)
@@ -258,7 +286,14 @@ class RecordEvidenceTool(BaseTool):
                     raw_data={"rejected": True, "reason": "normal_homepage_not_vulnerable"}
                 )
 
-        if ev_status_code in (404, 405):
+        if target_obs.tool in ("audit_access_control", "test_input_boundaries"):
+            if matched_obs_raw.get("findings_suggested"):
+                is_empirically_proven = True
+            else:
+                is_empirically_proven = False
+                verification_critique = f"{target_obs.tool} evaluated {endpoint} and verified safe handling without observable vulnerabilities."
+
+        elif ev_status_code in (404, 405):
             is_empirically_proven = False
             verification_critique = f"Endpoint returned HTTP {ev_status_code}. Non-existent or disallowed route is not a confirmed vulnerability."
         elif ev_status_code in (401, 403) and category in (FindingCategory.AUTHENTICATION, FindingCategory.AUTHORIZATION):

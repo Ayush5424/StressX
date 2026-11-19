@@ -13,6 +13,8 @@ from app.tools.pressure_test import PressureTestTool
 from app.tools.concurrency_test import ConcurrencyTestTool
 from app.tools.test_idempotency import TestIdempotencyTool
 from app.tools.inject_failure import InjectFailureTool
+from app.tools.audit_access_control import AuditAccessControlTool
+from app.tools.test_input_boundaries import TestInputBoundariesTool
 from app.tools.record_evidence import RecordEvidenceTool
 from app.tools.finish_audit import FinishAuditTool
 from app.models.session import AuditSession
@@ -43,6 +45,8 @@ class ToolRegistry:
             ConcurrencyTestTool(),
             TestIdempotencyTool(),
             InjectFailureTool(),
+            AuditAccessControlTool(),
+            TestInputBoundariesTool(),
             RecordEvidenceTool(),
             FinishAuditTool()
         ]

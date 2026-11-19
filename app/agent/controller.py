@@ -640,7 +640,7 @@ class AgentController:
             has_idempotency_finding = bool(raw.get("findings_suggested"))
             has_resilience_anomaly = (
                 (tool in ("pressure_test", "concurrency_test") and (raw.get("degradation_detected") or raw.get("race_condition_detected") or raw.get("rate_limit_detected")))
-                or (tool in ("test_idempotency", "inject_failure") and has_idempotency_finding)
+                or (tool in ("test_idempotency", "inject_failure", "audit_access_control", "test_input_boundaries") and has_idempotency_finding)
             )
 
             has_genuine_anomaly = has_db_syntax or has_secret_leak or has_auth_anomaly or has_differential or has_resilience_anomaly
@@ -696,13 +696,13 @@ class AgentController:
             category = FindingCategory.RATE_LIMITING
         elif "concurren" in action_lower or "race" in action_lower or "deadlock" in action_lower or decision.tool == "concurrency_test":
             category = FindingCategory.CONCURRENCY
-        elif "idor" in action_lower or "authorization" in reasoning_lower or "horizontal" in reasoning_lower or "profile" in action_lower or "role" in action_lower:
+        elif "idor" in action_lower or "authorization" in reasoning_lower or "horizontal" in reasoning_lower or "profile" in action_lower or "role" in action_lower or decision.tool == "audit_access_control":
             category = FindingCategory.AUTHORIZATION
         elif "debug" in action_lower or "leak" in reasoning_lower or "credential" in reasoning_lower or "env" in action_lower or "diagnostics" in action_lower:
             category = FindingCategory.INFORMATION_DISCLOSURE
         elif "admin" in action_lower or "privilege" in reasoning_lower:
             category = FindingCategory.AUTHORIZATION
-        elif "validation" in action_lower or "malformed" in action_lower or "boundary" in action_lower:
+        elif "validation" in action_lower or "malformed" in action_lower or "boundary" in action_lower or decision.tool == "test_input_boundaries":
             category = FindingCategory.INPUT_VALIDATION
         elif "resource" in action_lower or "exhaustion" in reasoning_lower or "payload" in action_lower:
             category = FindingCategory.RESOURCE_EXHAUSTION

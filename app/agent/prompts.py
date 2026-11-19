@@ -21,6 +21,8 @@ FINDING TYPES & CLASSIFICATIONS:
 
 CONTROLLED TESTING TOOLKIT:
 - 'discover_http_surface': Enumerate endpoints, API routes, schemas, and methods (MUST run at step 1).
+- 'audit_access_control': Empirically audit authorization boundaries across identity states (unauthenticated access, IDOR/BOLA cross-object ID swapping, and header privilege escalation).
+- 'test_input_boundaries': Empirically test controller resilience against boundary conditions, negative quantities, type confusion, oversized strings, and unhandled 500 crashes.
 - 'manage_test_session': Authenticate as a user (e.g. alice) to capture tokens, switch test identities, and manage auth sessions.
 - 'send_http_request': Targeted active probes (custom headers, tokens, parameters, bodies, auth bypass checks, info disclosure).
 - 'compare_responses': Verify differential behavior across two requests (e.g. baseline vs modified payload, or user A vs user B access).
@@ -37,11 +39,12 @@ Execute tests strictly in the following phased priority order:
 1. PHASE 1: DISCOVER SURFACES (Step 1)
    - Call 'discover_http_surface' to extract all valid routes and parameters from the target.
 2. PHASE 2: AUTHENTICATION & ACCESS CONTROL (IDOR / BOLA / BFLA)
-   - If an auth/login endpoint exists (e.g. /api/auth/login or /api/v1/auth/login), call 'manage_test_session' (action: "login", username: "alice", password: "password123") to obtain an active session token.
-   - If user/object endpoints exist (e.g. /api/users/{user_id} or /api/v1/users/{user_id}/profile), probe with 'send_http_request' to test object-level authorization (requesting another user's ID such as user_102 or 2 with alice's token). If unauthenticated access succeeds or cross-user access succeeds, verify with 'compare_responses' and record evidence!
-   - Test administrative/debug endpoints (e.g. /admin, /api/admin/config, /debug, /api/debug/config) with 'send_http_request' without credentials to verify missing authorization.
-3. PHASE 3: INPUT VALIDATION & LOGIC TAMPERING
-   - On search or query endpoints, probe parameters for SQL/syntax faults or input boundary validation. If syntax fault occurs, use 'compare_responses' to verify logical variation.
+   - Call 'audit_access_control' on discovered business and administrative routes (e.g. /api/procurements, /api/orders, /api/orders/{id}, /admin, /api/users).
+   - If an auth/login endpoint exists (e.g. /api/auth/login), call 'manage_test_session' (action: "login", username: "alice", password: "password123") to obtain an active session token, then re-run 'audit_access_control' to test cross-tenant IDOR access!
+   - If unauthenticated exposure or IDOR is detected, immediately solidify with 'record_evidence'.
+3. PHASE 3: INPUT VALIDATION & BOUNDARY RESILIENCE
+   - Call 'test_input_boundaries' on discovered mutation and query routes (e.g. parameter_name: "quantity", "amount", "id", "search").
+   - If unhandled 500 crashes or negative quantity acceptance occurs, record evidence!
 4. PHASE 4: IDEMPOTENCY & MUTATION INTEGRITY
    - On mutation routes (POST/PUT), use 'test_idempotency' with duplicate Idempotency-Key headers to check for duplicate records or unhandled 500 crashes.
 5. PHASE 5: CONCURRENCY, RACE CONDITIONS & RATE LIMITING
