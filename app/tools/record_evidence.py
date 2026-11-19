@@ -64,6 +64,65 @@ class RecordEvidenceTool(BaseTool):
         remediation = kwargs.get("remediation", "")
         causal_chain = kwargs.get("causal_chain", []) or []
 
+        # 1. Validation of Title specificity
+        VAGUE_TITLES = {
+            "potential security vulnerability",
+            "vulnerable http endpoint",
+            "discovered vulnerability",
+            "security issue",
+            "potential issue",
+            "system vulnerability",
+            "unspecified flaw",
+            "http vulnerability",
+            "test vulnerability",
+            "security misconfiguration",
+            "vulnerability",
+            "issue"
+        }
+        clean_title = title.strip().lower()
+        if clean_title in VAGUE_TITLES or len(title.strip()) < 8:
+            return Observation(
+                step=session.step_count,
+                tool=self.name,
+                target=endpoint,
+                summary=f"EVIDENCE REJECTED: Title is too vague ('{title}'). Specify the exact vulnerability, e.g. 'Broken Object Level Authorization (IDOR) on /api/orders/{{id}}' or 'Spring Boot Actuator Env Endpoint Exposed'.",
+                key_insights=[
+                    "Vague titles like 'Potential Security Vulnerability' are rejected.",
+                    "Identify the explicit vulnerability type, affected parameter, and failure mechanism."
+                ],
+                raw_data={"rejected": True, "reason": "vague_title"}
+            )
+
+        # 2. Validation of Impact specificity
+        clean_impact = impact.strip().lower()
+        if clean_impact in ("unspecified", "none", "n/a", "high", "medium", "low", "unknown", "") or len(impact.strip()) < 8:
+            return Observation(
+                step=session.step_count,
+                tool=self.name,
+                target=endpoint,
+                summary="EVIDENCE REJECTED: Impact description is missing or generic. State the explicit security and business risk.",
+                key_insights=[
+                    "Generic impact values like 'Unspecified' or 'High' are prohibited.",
+                    "Describe what an attacker can access, alter, steal, or disrupt."
+                ],
+                raw_data={"rejected": True, "reason": "vague_impact"}
+            )
+
+        # 3. Validation of Remediation specificity
+        clean_remed = remediation.strip().lower()
+        if clean_remed in ("further investigation and validation", "investigate", "fix it", "patch", "unknown", "none", "further investigation", "") or len(remediation.strip()) < 12:
+            return Observation(
+                step=session.step_count,
+                tool=self.name,
+                target=endpoint,
+                summary="EVIDENCE REJECTED: Remediation must provide actionable architectural or code-level guidance.",
+                key_insights=[
+                    "Placeholder remedies like 'Further investigation' are prohibited.",
+                    "Specify exact code annotations, parameterization, or authorization checks required."
+                ],
+                raw_data={"rejected": True, "reason": "vague_remediation"}
+            )
+
         try:
             category = FindingCategory(category_str)
         except Exception:
@@ -75,7 +134,6 @@ class RecordEvidenceTool(BaseTool):
             except Exception:
                 finding_type = FindingType.SECURITY_VULNERABILITY
         else:
-            # Infer from category
             from app.models.attack_family import AttackFamily
             try:
                 af = AttackFamily(category.value.lower())
@@ -87,117 +145,118 @@ class RecordEvidenceTool(BaseTool):
         confidence = Confidence(confidence_str)
         status = FindingStatus(status_str)
 
-        # Build evidence from the most relevant recent attempt / observation
-        evidence_items: list[Evidence] = []
-        curl_step = ""
-        matched_obs_raw: dict[str, Any] = {}
+        # 4. Strict filter for previous observations: Guardrail blocks cannot be used as evidence!
+        def is_valid_observation(o: Observation) -> bool:
+            if not o.raw_data:
+                return False
+            r = o.raw_data
+            if r.get("repetition_prevented") or r.get("unverified_endpoint_blocked") or r.get("guard_blocked") or r.get("rejected"):
+                return False
+            if "UNVERIFIED ENDPOINT BLOCKED" in str(o.summary) or "REPETITION PREVENTED" in str(o.summary) or "INVALID TARGET BLOCKED" in str(o.summary):
+                return False
+            if "request" in r and "status_code" in r:
+                return True
+            if o.tool in ("pressure_test", "concurrency_test", "test_idempotency", "inject_failure") and (r.get("samples") or r.get("baseline_latency_ms") or r.get("status_distribution")):
+                return True
+            return False
 
-        # Scan previous observations for matching endpoint or raw request/experiment data
-        is_experiment_category = category in (
-            FindingCategory.RATE_LIMITING,
-            FindingCategory.CONCURRENCY,
-            FindingCategory.SYSTEM_RESILIENCE,
-            FindingCategory.DUPLICATE_OPERATION,
-            FindingCategory.STATE_CONSISTENCY_FAILURE,
-            FindingCategory.RECOVERY_FAILURE,
-            FindingCategory.DEPENDENCY_FAILURE
-        )
-
-        # First pass: try to find an observation matching the category type and endpoint
         target_obs = None
         for obs in reversed(session.observations):
-            raw = obs.raw_data or {}
-            obs_target = obs.target or ""
-            endpoint_matches = (endpoint in obs_target) or (obs_target in endpoint) or (obs_target == "")
-
-            if is_experiment_category:
-                if obs.tool in ("pressure_test", "concurrency_test", "test_idempotency", "inject_failure"):
-                    target_obs = obs
-                    break
-            else:
-                if "request" in raw and "status_code" in raw and endpoint_matches:
+            if is_valid_observation(obs):
+                obs_target = obs.target or ""
+                if (endpoint in obs_target) or (obs_target in endpoint) or (obs_target == ""):
                     target_obs = obs
                     break
 
-        # Fallback to any recent valid observation if first pass didn't find specific match
         if not target_obs:
             for obs in reversed(session.observations):
-                raw = obs.raw_data or {}
-                if obs.tool in ("pressure_test", "concurrency_test", "test_idempotency", "inject_failure") or ("request" in raw and "status_code" in raw):
+                if is_valid_observation(obs):
                     target_obs = obs
                     break
 
-        if target_obs:
-            raw = target_obs.raw_data or {}
-            matched_obs_raw = raw
-            if not causal_chain and raw.get("causal_chain"):
-                causal_chain = list(raw["causal_chain"])
+        if not target_obs:
+            return Observation(
+                step=session.step_count,
+                tool=self.name,
+                target=endpoint,
+                summary=f"EVIDENCE REJECTED: No verified runtime HTTP exchange found for endpoint '{endpoint}'. You must test the endpoint first with send_http_request.",
+                key_insights=[
+                    "Findings must be preceded by a real HTTP exchange showing the flaw.",
+                    "Internal controller guard messages cannot be recorded as vulnerabilities."
+                ],
+                raw_data={"rejected": True, "reason": "no_valid_runtime_exchange"}
+            )
 
-            if target_obs.tool in ("pressure_test", "concurrency_test", "test_idempotency", "inject_failure"):
-                obs_fact = raw.get("observed_facts", target_obs.summary)
-                inf_conc = raw.get("inferred_conclusion", "Experimental verification evaluation.")
-                base_metrics = {"mean_ms": raw.get("baseline_mean_ms") or raw.get("baseline_latency_ms", 0.0)}
-                evidence = Evidence.from_experiment(
-                    description=f"Empirical resilience experiment on {endpoint} ({target_obs.tool})",
-                    endpoint=endpoint,
-                    method="GET",
-                    test_conditions=f"{target_obs.tool} with conditions: {raw.get('scenario') or raw.get('peak_rate') or raw.get('concurrency_level')}",
-                    pressure_level="STRESSED",
-                    baseline_metrics=base_metrics,
-                    observed_degradation=str(raw.get("degradation_detected") or raw.get("errors_detected", False)),
-                    recovery_behavior=str(raw.get("recovery_verified", True)),
-                    response_samples=raw.get("samples", []),
-                    observed_behavior=obs_fact,
-                    inferred_behavior=inf_conc,
-                    curl_command=f"curl -i '{session.target.resolve_url(endpoint)}'",
-                    evidence_type="SYSTEM_EXPERIMENT",
-                    causal_chain=causal_chain,
-                    downstream_effects=raw.get("downstream_effects", [])
-                )
-                evidence_items.append(evidence)
-                session.add_evidence(evidence)
-                curl_step = evidence.curl_command or ""
-            elif "request" in raw and "status_code" in raw:
-                req = raw["request"]
-                req_url = req.get("url", endpoint)
-                evidence = Evidence.from_http_exchange(
-                    description=f"Empirical validation probe against {req_url}",
-                    method=req.get("method", "GET"),
-                    url=req_url,
-                    status_code=raw.get("status_code", 200),
-                    req_headers=req.get("headers", {}),
-                    req_body=req.get("body"),
-                    res_headers=raw.get("headers", {}),
-                    res_body=raw.get("body", ""),
-                    latency_ms=raw.get("elapsed_ms", 0.0),
-                    evidence_type="HTTP_TRANSACTION"
-                )
-                evidence_items.append(evidence)
-                session.add_evidence(evidence)
-                curl_step = evidence.curl_command or ""
+        evidence_items: list[Evidence] = []
+        curl_step = ""
+        matched_obs_raw: dict[str, Any] = target_obs.raw_data or {}
+        if not causal_chain and matched_obs_raw.get("causal_chain"):
+            causal_chain = list(matched_obs_raw["causal_chain"])
 
-        # Fallback evidence if no recent raw request matched
-        if not evidence_items:
-            resolved_url = session.target.resolve_url(endpoint)
-            evidence = Evidence(
-                evidence_type="RUNTIME_OBSERVATION",
-                description=f"Direct runtime inspection of {endpoint}",
-                request_summary=f"Probing {endpoint}",
-                response_summary="Observed non-compliant security behavior",
-                curl_command=f"curl -i '{resolved_url}'",
-                verified=True
+        if target_obs.tool in ("pressure_test", "concurrency_test", "test_idempotency", "inject_failure"):
+            obs_fact = matched_obs_raw.get("observed_facts", target_obs.summary)
+            inf_conc = matched_obs_raw.get("inferred_conclusion", "Experimental verification evaluation.")
+            base_metrics = {"mean_ms": matched_obs_raw.get("baseline_mean_ms") or matched_obs_raw.get("baseline_latency_ms", 0.0)}
+            evidence = Evidence.from_experiment(
+                description=f"Empirical resilience experiment on {endpoint} ({target_obs.tool})",
+                endpoint=endpoint,
+                method="GET",
+                test_conditions=f"{target_obs.tool} with conditions: {matched_obs_raw.get('scenario') or matched_obs_raw.get('peak_rate') or matched_obs_raw.get('concurrency_level')}",
+                pressure_level="STRESSED",
+                baseline_metrics=base_metrics,
+                observed_degradation=str(matched_obs_raw.get("degradation_detected") or matched_obs_raw.get("errors_detected", False)),
+                recovery_behavior=str(matched_obs_raw.get("recovery_verified", True)),
+                response_samples=matched_obs_raw.get("samples", []),
+                observed_behavior=obs_fact,
+                inferred_behavior=inf_conc,
+                curl_command=f"curl -i '{session.target.resolve_url(endpoint)}'",
+                evidence_type="SYSTEM_EXPERIMENT",
+                causal_chain=causal_chain,
+                downstream_effects=matched_obs_raw.get("downstream_effects", [])
             )
             evidence_items.append(evidence)
             session.add_evidence(evidence)
-            curl_step = evidence.curl_command
+            curl_step = evidence.curl_command or ""
+        elif "request" in matched_obs_raw and "status_code" in matched_obs_raw:
+            req = matched_obs_raw["request"]
+            req_url = req.get("url", endpoint)
+            evidence = Evidence.from_http_exchange(
+                description=f"Empirical validation probe against {req_url}",
+                method=req.get("method", "GET"),
+                url=req_url,
+                status_code=matched_obs_raw.get("status_code", 200),
+                req_headers=req.get("headers", {}),
+                req_body=req.get("body"),
+                res_headers=matched_obs_raw.get("headers", {}),
+                res_body=matched_obs_raw.get("body", ""),
+                latency_ms=matched_obs_raw.get("elapsed_ms", 0.0),
+                evidence_type="HTTP_TRANSACTION"
+            )
+            evidence_items.append(evidence)
+            session.add_evidence(evidence)
+            curl_step = evidence.curl_command or ""
 
-        # Deterministic verification validation:
-        # HTTP status codes like 200, 400, 404, 405, 500 alone DO NOT establish a vulnerability.
+        # 5. Deterministic verification criteria:
         ev_status_code = matched_obs_raw.get("status_code", 200)
         ev_body = str(matched_obs_raw.get("body", "")).lower()
-        desc_lower = description.lower()
         is_empirically_proven = True
         verification_critique = ""
+
+        # Reject normal HTML on root '/'
+        if endpoint in ("/", "") and ev_status_code == 200 and ("<!doctype html" in ev_body or "<html" in ev_body):
+            has_secret = any(k in ev_body for k in ("password", "private_key", "secret_key", "aws_access_key", "traceback"))
+            if not has_secret:
+                return Observation(
+                    step=session.step_count,
+                    tool=self.name,
+                    target=endpoint,
+                    summary="EVIDENCE REJECTED: The application homepage ('/') returning HTTP 200 HTML is standard web behavior, NOT a security vulnerability.",
+                    key_insights=[
+                        "An application serving its HTML landing page or single-page app is not vulnerable.",
+                        "Target specific backend API endpoints with payloads, auth headers, or parameter fuzzing."
+                    ],
+                    raw_data={"rejected": True, "reason": "normal_homepage_not_vulnerable"}
+                )
 
         if ev_status_code in (404, 405):
             is_empirically_proven = False
@@ -205,11 +264,11 @@ class RecordEvidenceTool(BaseTool):
         elif ev_status_code in (401, 403) and category in (FindingCategory.AUTHENTICATION, FindingCategory.AUTHORIZATION):
             is_empirically_proven = False
             verification_critique = f"Endpoint returned HTTP {ev_status_code} (Access Denied). Enforcement of access boundary is not an exploit."
-        elif category in (FindingCategory.UNSAFE_INPUT_HANDLING, FindingCategory.INJECTION):
-            # Check for actual database error syntax, command execution output, or differential comparison
+        elif category in (FindingCategory.UNSAFE_INPUT_HANDLING, FindingCategory.INJECTION, FindingCategory.SQL_INJECTION, FindingCategory.COMMAND_INJECTION):
             has_db_syntax = any(term in ev_body for term in [
                 "syntax error", "sqlite3", "psycopg2", "mysql", "operationalerror",
-                "unclosed quotation mark", "sql syntax", "traceback"
+                "unclosed quotation mark", "sql syntax", "traceback", "badsqlgrammar",
+                "org.springframework.dao", "hibernate", "jpa", "jdbc"
             ])
             has_differential = any(
                 obs.tool == "compare_responses" and (
@@ -219,19 +278,31 @@ class RecordEvidenceTool(BaseTool):
             )
             if not has_db_syntax and not has_differential:
                 is_empirically_proven = False
-                verification_critique = "No database syntax error, command execution, or response differential observed. Bare HTTP status is insufficient."
+                verification_critique = "No database error, command execution signature, or response differential observed. Bare HTTP status is insufficient."
         elif category == FindingCategory.INFORMATION_DISCLOSURE:
-            # Check for leaked secrets, credentials, environment keys, or internal tracebacks
             evidence_text = f"{endpoint} {description} {ev_body}".lower()
             has_leak = any(term in evidence_text for term in [
                 "secret", "api_key", "password", "token", "private_key",
-                "aws_secret", "database_url", "env", "traceback", "config", "debug"
+                "aws_secret", "database_url", "env", "traceback", "config", "debug",
+                "org.springframework", "java.lang.nullpointerexception", "stacktrace"
             ])
             if not has_leak:
                 is_empirically_proven = False
                 verification_critique = "HTTP 200/500 without sensitive key, password, or configuration data in body is not verifiable disclosure."
+        elif category == FindingCategory.SECURITY_MISCONFIGURATION:
+            has_actuator_misconfig = (
+                any(t in endpoint.lower() for t in ("/actuator", "/env", "/mappings", "/beans", "/heapdump", "/configprops"))
+                and ev_status_code == 200
+                and any(term in ev_body for term in ("contexts", "profiles", "beans", "properties", "systemenvironment", "spring"))
+            ) or any(term in ev_body for term in ("whitelabel error page", "stacktrace", "exception in thread"))
+            if not has_actuator_misconfig and ev_status_code not in (500,):
+                is_empirically_proven = False
+                verification_critique = "No exposed actuator configuration, dangerous unprotected management endpoint, or unhandled stack trace observed."
+        elif category in (FindingCategory.IDOR_BOLA, FindingCategory.AUTHORIZATION):
+            if ev_status_code != 200:
+                is_empirically_proven = False
+                verification_critique = f"Endpoint returned HTTP {ev_status_code}. BOLA/IDOR requires successful 200 retrieval of another user's unauthorized record."
         elif category == FindingCategory.CONCURRENCY:
-            # Never assume a race condition from timing alone
             has_concurrency_proof = (
                 matched_obs_raw.get("race_condition_detected")
                 or matched_obs_raw.get("db_lock_detected")
@@ -251,10 +322,19 @@ class RecordEvidenceTool(BaseTool):
                 is_empirically_proven = False
                 verification_critique = "No measured degradation, throttling threshold, or 429 response recorded under load."
 
-        if not is_empirically_proven and status == FindingStatus.CONFIRMED:
-            status = FindingStatus.INCONCLUSIVE
-            confidence = Confidence.LOW
-            description += f"\n\n[EVIDENCE VERIFICATION WARNING]: {verification_critique}"
+        if not is_empirically_proven:
+            return Observation(
+                step=session.step_count,
+                tool=self.name,
+                target=endpoint,
+                summary=f"EVIDENCE REJECTED: Finding not empirically confirmed. {verification_critique}",
+                key_insights=[
+                    verification_critique,
+                    "StressX strictly requires reproducible, verifiable runtime proof before confirming a security finding.",
+                    "Continue testing with modified payloads, auth tokens, or injection sequences."
+                ],
+                raw_data={"rejected": True, "reason": verification_critique}
+            )
 
         repro_steps = [
             f"Target host: {session.target.base_url}",

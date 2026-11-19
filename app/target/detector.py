@@ -50,6 +50,9 @@ class ProjectDetector:
         "queue": [
             "rabbitmq", "kafka", "activemq", "nats", "sqs"
         ],
+        "frontend": [
+            "frontend", "ui", "client", "webapp", "react", "vue", "angular", "next", "nuxt"
+        ],
         "infra": [
             "elasticsearch", "opensearch", "solr", "zookeeper",
             "etcd", "consul", "vault", "localstack", "prometheus",
@@ -141,13 +144,24 @@ class ProjectDetector:
             if "build" in spec:
                 pts += 10
             s_low = s.lower()
-            if s_low in ("app", "web", "api", "backend", "server"):
+            # Heavily prioritize API / backend services over frontend / UI
+            if s_low in ("backend", "api", "server", "app"):
+                pts += 15
+            elif any(k in s_low for k in ("backend", "api", "server")):
+                pts += 12
+            elif "web" in s_low and not any(k in s_low for k in ("front", "ui", "client")):
                 pts += 8
-            elif any(k in s_low for k in ("web", "api", "app", "server", "backend")):
-                pts += 5
+            elif any(k in s_low for k in ("frontend", "ui", "client", "spa")):
+                pts -= 15  # Deprioritize SPA frontends so backend APIs are chosen
+
             port = cls._extract_service_port(spec)
-            if port in (80, 8080, 8000, 3000, 5000, 4000, 8088, 9000):
+            # Standard API ports get high bonus
+            if port in (8080, 8000, 5000, 8088, 9000):
+                pts += 10
+            elif port in (80, 4000):
                 pts += 5
+            elif port in (3000, 5173, 4200):  # Typical frontend ports
+                pts -= 5
             elif port:
                 pts += 2
             return pts

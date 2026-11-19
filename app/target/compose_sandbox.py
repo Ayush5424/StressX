@@ -48,7 +48,11 @@ class ComposeProjectSandbox:
         self.primary_service = target_service or project_info.primary_service or (
             project_info.services[0] if project_info.services else "app"
         )
-        self.container_port = target_port or project_info.detected_port or 8080
+        # Accurately resolve port from the selected service's spec if available
+        service_port = project_info.detected_port
+        if hasattr(project_info, "service_ports") and self.primary_service in getattr(project_info, "service_ports", {}):
+            service_port = project_info.service_ports[self.primary_service]
+        self.container_port = target_port or service_port or 8080
         self.host_port = find_free_port(9200)
 
         self.temp_dir: Optional[Path] = None

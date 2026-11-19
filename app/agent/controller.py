@@ -109,17 +109,26 @@ class AgentController:
             )
 
             # 2. Query model for structured decision
-            try:
-                decision: AgentDecision = self.model.generate_structured(
-                    prompt=state_prompt,
-                    response_schema=AgentDecision,
-                    system=SYSTEM_PROMPT
+            # Deterministic requirement: Step 1 MUST perform active surface discovery if surface is not mapped
+            if step_idx == 1 and not self.session.context_data.get("discovered_endpoints"):
+                decision = AgentDecision(
+                    reasoning_summary="Initiating comprehensive active reconnaissance to map all endpoints, API schemas, and methods.",
+                    next_action="Enumerate endpoints, methods, and API definitions via discover_http_surface.",
+                    tool="discover_http_surface",
+                    arguments={"scan_depth": "standard"}
                 )
-            except Exception as e:
-                logger.error(f"Failed to generate structured decision at step {step_idx}: {e}")
-                self.session.context_data["error_message"] = str(e)
-                self.session.complete(SessionStatus.FAILED)
-                break
+            else:
+                try:
+                    decision = self.model.generate_structured(
+                        prompt=state_prompt,
+                        response_schema=AgentDecision,
+                        system=SYSTEM_PROMPT
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to generate structured decision at step {step_idx}: {e}")
+                    self.session.context_data["error_message"] = str(e)
+                    self.session.complete(SessionStatus.FAILED)
+                    break
 
             logger.info(
                 f"[Step {step_idx} | Phase: {self.session.current_phase.value}] "
@@ -422,7 +431,50 @@ class AgentController:
                 self.session.set_phase(AuditPhase.HYPOTHESIS)
                 return True, obs
 
-        # 3. Prevent retrying paths previously discovered to be 404 or 405
+        # 3. Prevent testing non-existent/hallucinated endpoints not in discovered surface
+        if discovered and target_val and tool in (
+            "send_http_request", "test_idempotency", "concurrency_test",
+            "pressure_test", "measure_baseline", "inspect_http_response"
+        ):
+            raw_path = str(target_val).split("?")[0].strip()
+            # Normalize trailing slash
+            norm_raw = raw_path.rstrip("/")
+            
+            # Check against discovered endpoints, allowing dynamic parameters like {id} or dynamic numbers
+            def matches_discovered(p: str) -> bool:
+                p_norm = p.rstrip("/")
+                for d in discovered:
+                    d_norm = d.rstrip("/")
+                    if p_norm == d_norm:
+                        return True
+                    # Check regex match for parameter templates e.g. /api/users/{user_id} -> /api/users/2 or /api/users/user_101
+                    import re
+                    pattern = "^" + re.sub(r'\{[^}]+\}', r'[^/]+', d_norm) + "$"
+                    if re.match(pattern, p_norm):
+                        return True
+                return False
+
+            if not matches_discovered(norm_raw):
+                self.session.repeated_actions_prevented += 1
+                obs = Observation(
+                    step=step_idx,
+                    tool=tool,
+                    target=str(target_val),
+                    summary=f"UNVERIFIED ENDPOINT BLOCKED: '{target_val}' does not exist in discovered surfaces. You must select from valid discovered endpoints.",
+                    key_insights=[
+                        f"Target path '{raw_path}' is not an enumerated endpoint.",
+                        f"Permitted routes: {', '.join(discovered[:6])}"
+                    ],
+                    raw_data={"repetition_prevented": True, "duplicate_tool": tool, "unverified_target": raw_path}
+                )
+                self._repetition_warning = (
+                    f"Target '{target_val}' is an invented or unverified route. "
+                    f"Pivot immediately to a known discovered endpoint: {', '.join(discovered[:5])}."
+                )
+                self.session.set_phase(AuditPhase.HYPOTHESIS)
+                return True, obs
+
+        # 4. Prevent retrying paths previously discovered to be 404 or 405
         bad_paths = self.session.context_data.get("disallowed_or_404_paths", [])
         if target_val and any(bp == str(target_val) for bp in bad_paths):
             self.session.repeated_actions_prevented += 1
@@ -438,7 +490,7 @@ class AgentController:
             self.session.set_phase(AuditPhase.HYPOTHESIS)
             return True, obs
 
-        # 4. Prevent repeated identical tool calls
+        # 5. Prevent repeated identical tool calls
         fp = self._compute_action_fingerprint(tool, decision.arguments)
         if fp in self._executed_actions:
             self.session.repeated_actions_prevented += 1

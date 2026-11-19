@@ -73,7 +73,12 @@ class DiscoverHttpSurfaceTool(BaseTool):
         "/api/v1/openapi.json",
         "/v2/api-docs",
         "/v3/api-docs",
-        "/swagger/v1/swagger.json"
+        "/v3/api-docs/",
+        "/v3/api-docs.yaml",
+        "/api-docs",
+        "/api/v3/api-docs",
+        "/swagger/v1/swagger.json",
+        "/actuator/mappings"
     ]
 
     @staticmethod
@@ -131,13 +136,14 @@ class DiscoverHttpSurfaceTool(BaseTool):
         all_params: list[str] = list(session.context_data.get("interesting_parameters", []))
 
         async with httpx.AsyncClient(timeout=4.0) as client:
-            # 1. Probe for OpenAPI / Swagger specs dynamically
+            # 1. Probe for OpenAPI / Swagger specs & Spring Boot actuator mappings dynamically
             for spec_path in self.OPENAPI_SPEC_PATHS:
                 spec_url = self.validate_target(session, spec_path)
                 try:
                     res = await client.get(spec_url)
                     if res.status_code == 200 and ("json" in res.headers.get("content-type", "") or res.text.strip().startswith("{")):
                         spec = res.json()
+                        # If standard OpenAPI / Swagger
                         spec_routes, spec_params = self.parse_openapi_spec(spec)
                         if spec_routes:
                             insights.append(f"Discovered OpenAPI specification at {spec_path} with {len(spec_routes)} endpoints and {len(spec_params)} parameters.")
@@ -148,8 +154,84 @@ class DiscoverHttpSurfaceTool(BaseTool):
                                 if p not in all_params:
                                     all_params.append(p)
                             break
+                        # Check for Spring Boot actuator mappings format
+                        elif "contexts" in spec:
+                            try:
+                                spring_count = 0
+                                for ctx_name, ctx_data in spec.get("contexts", {}).items():
+                                    mappings = ctx_data.get("mappings", {})
+                                    for servlet_name, servlets in mappings.get("dispatcherServlets", {}).items():
+                                        for handler in servlets:
+                                            details = handler.get("details", {})
+                                            req_cond = details.get("requestMappingConditions", {})
+                                            patterns = req_cond.get("patterns", [])
+                                            methods = req_cond.get("methods", ["GET"])
+                                            m_name = methods[0] if methods else "GET"
+                                            for p in patterns:
+                                                if p and not p.startswith("/error") and not any(r["path"] == p for r in discovered_routes):
+                                                    discovered_routes.append({
+                                                        "path": p,
+                                                        "method": m_name,
+                                                        "source": "spring_actuator_mappings",
+                                                        "status_code": 200,
+                                                        "content_type": "application/json"
+                                                    })
+                                                    spring_count += 1
+                                if spring_count > 0:
+                                    insights.append(f"Discovered {spring_count} Spring Boot mapped endpoints via {spec_path}.")
+                                    break
+                            except Exception:
+                                pass
                 except Exception:
                     pass
+
+            # 2. Extract API routes from frontend HTML and referenced JavaScript bundles
+            root_html_signature = None
+            try:
+                root_res = await client.get(self.validate_target(session, "/"), follow_redirects=False)
+                if root_res.status_code == 200 and "text/html" in root_res.headers.get("content-type", ""):
+                    root_html = root_res.text
+                    root_html_signature = len(root_html.strip())
+
+                    # Search for API endpoints directly inside HTML
+                    inline_api_endpoints = set(re.findall(r'["\'](/api(?:/v\d+)?/[a-zA-Z0-9_\-\/{}\.]+)', root_html))
+                    for ep in inline_api_endpoints:
+                        clean_ep = ep.split("?")[0].rstrip("/")
+                        if clean_ep and not any(r["path"] == clean_ep for r in discovered_routes):
+                            discovered_routes.append({
+                                "path": clean_ep,
+                                "method": "GET",
+                                "source": "frontend_html_extract",
+                                "status_code": 200,
+                                "content_type": "application/json"
+                            })
+                            insights.append(f"Discovered API route referenced in frontend HTML: {clean_ep}")
+
+                    # Extract referenced script bundles (e.g. main.js, bundle.js, app.js)
+                    script_srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', root_html)
+                    for src in script_srcs[:5]:
+                        if not src.startswith("http") and not src.startswith("//"):
+                            script_path = src if src.startswith("/") else f"/{src}"
+                            try:
+                                s_res = await client.get(self.validate_target(session, script_path))
+                                if s_res.status_code == 200:
+                                    js_endpoints = set(re.findall(r'["\'](/api(?:/v\d+)?/[a-zA-Z0-9_\-\/{}\.]+)', s_res.text))
+                                    for j_ep in js_endpoints:
+                                        clean_j_ep = j_ep.split("?")[0].rstrip("/")
+                                        if clean_j_ep and not any(clean_j_ep.endswith(ext) for ext in [".js", ".css", ".png", ".jpg", ".svg", ".ico"]):
+                                            if not any(r["path"] == clean_j_ep for r in discovered_routes):
+                                                discovered_routes.append({
+                                                    "path": clean_j_ep,
+                                                    "method": "GET",
+                                                    "source": "frontend_bundle_extract",
+                                                    "status_code": 200,
+                                                    "content_type": "application/json"
+                                                })
+                                                insights.append(f"Discovered backend API route in frontend bundle ({script_path}): {clean_j_ep}")
+                            except Exception:
+                                pass
+            except Exception:
+                pass
 
             # 2. Probe common path dictionary
             for path in self.COMMON_PATHS:
@@ -157,6 +239,13 @@ class DiscoverHttpSurfaceTool(BaseTool):
                 try:
                     res = await client.get(url, follow_redirects=False)
                     if res.status_code in (200, 201, 301, 302, 401, 403, 405):
+                        c_type = res.headers.get("content-type", "").lower()
+                        # If route returns identical HTML to root index.html, it's an SPA fallback, NOT a real API endpoint!
+                        if path != "/" and "text/html" in c_type and root_html_signature:
+                            if abs(len(res.text.strip()) - root_html_signature) < 50:
+                                # Skip registering dummy SPA routes as API attack surfaces
+                                continue
+
                         allow_hdr = res.headers.get("allow", "").upper()
                         rec_method = "GET"
                         if res.status_code == 405:

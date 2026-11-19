@@ -43,16 +43,18 @@ export async function analyzeProject(projectPath: string): Promise<AnalyzeProjec
 }
 
 export async function createAudit(
-  projectPath: string,
+  projectPath?: string,
   selectedSteps?: number,
   name?: string,
-  auditName?: string
+  auditName?: string,
+  targetUrl?: string
 ): Promise<AuditConfig> {
   const res = await fetch(`${API_BASE}/api/audits`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       project_path: projectPath,
+      target_url: targetUrl,
       selected_steps: selectedSteps,
       name: name,
       audit_name: auditName || name

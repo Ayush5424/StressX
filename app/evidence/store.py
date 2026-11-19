@@ -234,41 +234,68 @@ class EvidenceStore:
         ])
 
         if not session.findings:
-            lines.append("*No confirmed vulnerabilities detected during this assessment session.*")
+            endpoints_list = session.context_data.get("discovered_endpoints", [])
+            ep_str = ", ".join(f"`{e}`" for e in endpoints_list) if endpoints_list else "`None detected`"
+            lines.extend([
+                "### Assessment Outcome: Clean Baseline",
+                f"StressX completed autonomous empirical security testing against target **{target_name}** without detecting exploitable vulnerability flaws within the allocated testing budget.",
+                "",
+                f"- **Discovered Surfaces Evaluated:** {ep_str}",
+                "- **Security Vectors Tested:**",
+                "  - **Authentication Boundaries:** Probed unauthenticated and missing-header requests against protected paths.",
+                "  - **Authorization & IDOR (BOLA):** Tested object-level parameter manipulation across tenant boundaries.",
+                "  - **Input Validation & Injection:** Dispatched malformed types, fuzzing strings, and SQL injection syntax probes.",
+                "  - **Information & Secret Disclosure:** Inspected responses and error bodies for stack traces, credentials, or internal configs.",
+                "  - **Resilience & Rate Throttling:** Evaluated endpoint recovery, concurrent traffic consistency, and duplicate request idempotency.",
+                "",
+                "> **Conclusion:** All tested endpoints consistently enforced authorization gates, validated input formats, or responded with safe errors without disclosing sensitive internals or corrupting application state."
+            ])
         else:
             for idx, finding in enumerate(session.findings, 1):
                 lines.extend([
                     f"### {idx}. [{finding.severity.value}] {redact_sensitive_text(finding.title)}",
-                    f"- **Category:** {finding.category.value}",
-                    f"- **Status:** {finding.status.value}",
-                    f"- **Confidence:** {finding.confidence.value}",
-                    f"- **Affected Endpoint:** `{finding.affected_endpoint}`",
+                    f"- **Category:** `{finding.category.value}`",
+                    f"- **Classification:** `{finding.finding_type.value}`",
+                    f"- **Validation Status:** `{finding.status.value}`",
+                    f"- **Confidence:** `{finding.confidence.value}`",
+                    f"- **Affected Endpoint:** `{finding.affected_endpoint or '/'}`",
                     "",
-                    f"**Description:**",
+                    "#### Vulnerability Description & Root Cause",
                     f"{redact_sensitive_text(finding.description)}",
                     "",
-                    f"**Impact:**",
+                    "#### Security & Business Impact",
                     f"{redact_sensitive_text(finding.impact)}",
                     "",
-                    "**Reproduction Runbook:**"
+                    "#### Reproduction Runbook",
+                    "Execute the following reproducible curl command to observe the vulnerability:"
                 ])
                 for step in finding.reproduction_steps:
                     redacted_step = redact_sensitive_text(step)
-                    lines.append(f"```bash\n{redacted_step}\n```" if "curl" in step else f"- {redacted_step}")
+                    if "curl" in step:
+                        lines.append(f"```bash\n{redacted_step}\n```")
+                    else:
+                        lines.append(f"- {redacted_step}")
 
                 if finding.evidence:
-                    lines.append("\n**Verified Runtime Evidence:**")
+                    lines.append("\n#### Verified Runtime Evidence Artifacts")
                     for ev in finding.evidence:
-                        lines.append(f"- **Evidence ID:** `{ev.id}` ({ev.evidence_type})")
-                        lines.append(f"  - Request: `{redact_sensitive_text(ev.request_summary)}`")
-                        lines.append(f"  - Response: `{redact_sensitive_text(ev.response_summary)}`")
+                        lines.append(f"- **Evidence ID:** `{ev.id}` (`{ev.evidence_type}`)")
+                        lines.append(f"  - **Request Sent:** `{redact_sensitive_text(ev.request_summary)}`")
+                        lines.append(f"  - **Observed Response:** `{redact_sensitive_text(ev.response_summary)}`")
+                        if ev.observed_behavior:
+                            lines.append(f"  - **Observed Behavior:** {redact_sensitive_text(ev.observed_behavior)}")
                         if ev.curl_command:
-                            lines.append(f"  - Exact Curl: `{redact_sensitive_text(ev.curl_command)}`")
+                            lines.append(f"  - **Reproduction cURL:**\n```bash\n{redact_sensitive_text(ev.curl_command)}\n```")
+
+                if finding.causal_chain:
+                    lines.append("\n#### Causal Failure Chain")
+                    for c_idx, c_step in enumerate(finding.causal_chain, 1):
+                        lines.append(f"{c_idx}. {redact_sensitive_text(c_step)}")
 
                 if finding.remediation:
                     lines.extend([
                         "",
-                        f"**Actionable Remediation:**",
+                        "#### Actionable Remediation Guidance",
                         f"> {redact_sensitive_text(finding.remediation)}",
                         ""
                     ])

@@ -36,7 +36,8 @@ class AnalyzeProjectRequest(BaseModel):
 
 
 class CreateAuditRequest(BaseModel):
-    project_path: str
+    project_path: Optional[str] = None
+    target_url: Optional[str] = None
     selected_steps: Optional[int] = None
     name: Optional[str] = None
     audit_name: Optional[str] = None
@@ -89,6 +90,7 @@ async def create_audit(req: CreateAuditRequest):
     try:
         return AUDIT_MANAGER.create_audit(
             project_path=req.project_path,
+            target_url=req.target_url,
             selected_steps=req.selected_steps,
             name=req.name,
             audit_name=req.audit_name

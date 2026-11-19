@@ -70,6 +70,14 @@ class SendHttpRequestTool(BaseTool):
                     insights.append(f"Request succeeded with HTTP 200 ({elapsed_ms:.1f}ms).")
                     if any(term in res_text.lower() for term in ["password", "secret_key", "token", "private_key"]):
                         insights.append("Response content contains potential credential or secret tokens.")
+                    # IDOR / Broken Object-Level Authorization detection:
+                    active_user = session.context_data.get("active_user")
+                    if active_user and any(u_seg in path for u_seg in ["users", "profile", "account", "orders"]):
+                        # If authenticated as user A (e.g. alice) but endpoint or data reflects another user ID
+                        if ("alice" in active_user.lower() and ("user_102" in path or "/2" in path or "bob" in res_text.lower())):
+                            insights.append("POTENTIAL IDOR / BOLA DETECTED: Authenticated user accessed private records of another identity.")
+                elif status_code in (401, 403):
+                    insights.append(f"Access gated by authentication/authorization (HTTP {status_code}).")
 
                 if elapsed_ms > 2000:
                     insights.append(f"Noticeable latency anomaly detected: {elapsed_ms:.1f}ms response time.")

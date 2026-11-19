@@ -75,12 +75,52 @@ class AuditManager:
         target_p = Path(project_path).resolve()
     def create_audit(
         self,
-        project_path: str,
+        project_path: Optional[str] = None,
+        target_url: Optional[str] = None,
         selected_steps: Optional[int] = None,
         name: Optional[str] = None,
         audit_name: Optional[str] = None
     ) -> AuditConfig:
-        """Inspects target and registers a new audit session with explicit audit_name."""
+        """Inspects target or accepts running URL, registering a new audit session with explicit audit_name."""
+        audit_id = f"audit_{uuid.uuid4().hex[:8]}"
+        
+        # If auditing a live running URL directly:
+        if target_url and target_url.strip():
+            url = target_url.strip().rstrip("/")
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            proj_name = name or f"Live Target ({parsed.netloc})"
+            user_audit_name = (audit_name or "").strip() or f"{proj_name} Security Audit"
+            effective_steps = selected_steps or 20
+            
+            complexity = TargetComplexity(
+                level=ComplexityLevel.MEDIUM,
+                score=50,
+                recommended_steps=20,
+                reasons=["Live running application URL direct audit"]
+            )
+            config = AuditConfig(
+                audit_id=audit_id,
+                audit_name=user_audit_name,
+                target_name=proj_name,
+                target_url=url,
+                target_type="LIVE_URL",
+                project_name=proj_name,
+                complexity=complexity,
+                recommended_steps=20,
+                selected_steps=effective_steps,
+                max_steps=effective_steps,
+                step_budget=effective_steps,
+                status=AuditStatus.CONFIGURED
+            )
+            self.audits[audit_id] = config
+            logger.info(f"Created direct live URL audit configuration {audit_id} for {url}")
+            return config
+
+        if not project_path:
+            raise ValueError("Either project_path or target_url must be provided.")
+
         target_p = Path(project_path)
         if not target_p.exists():
             raise FileNotFoundError(f"Target project path does not exist: {project_path}")
@@ -89,7 +129,6 @@ class AuditManager:
         comp_dict = analysis["complexity"]
         complexity = TargetComplexity(**comp_dict)
 
-        audit_id = f"audit_{uuid.uuid4().hex[:8]}"
         project_target_name = analysis["project"]["name"] or target_p.name
         user_audit_name = (audit_name or "").strip() or (name or "").strip() or f"{project_target_name} Security Audit"
 
@@ -102,6 +141,7 @@ class AuditManager:
             audit_name=user_audit_name,
             target_name=project_target_name,
             target_path=str(target_p),
+            target_type="DIRECTORY",
             project_name=project_target_name,
             complexity=complexity,
             recommended_steps=complexity.recommended_steps,
@@ -169,6 +209,50 @@ class AuditManager:
         target: Optional[Target] = None
 
         try:
+            # Handle direct Live URL audit
+            if config.target_url:
+                from urllib.parse import urlparse
+                parsed = urlparse(config.target_url)
+                port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                hostname = parsed.hostname or "127.0.0.1"
+                target = Target(
+                    base_url=config.target_url,
+                    allowed_hosts=[hostname, "127.0.0.1", "localhost"],
+                    allowed_ports=[port],
+                    name=config.project_name
+                )
+                config.target_url = target.base_url
+                config.status = AuditStatus.RUNNING
+                config.phase = "RECON"
+                
+                await EVENT_MANAGER.emit(
+                    audit_id=audit_id,
+                    event_type=AuditEventType.SANDBOX_STARTED,
+                    data={"base_url": target.base_url, "stage": "READY", "progress_pct": 100},
+                    summary=f"Connected directly to live target application at {target.base_url}."
+                )
+                await EVENT_MANAGER.emit(
+                    audit_id=audit_id,
+                    event_type=AuditEventType.STATUS_CHANGED,
+                    data={"status": "RUNNING"},
+                    summary="Audit status transitioned to RUNNING."
+                )
+                
+                controller = AgentController(
+                    target=target,
+                    max_steps=config.selected_steps or config.max_steps,
+                    evidence_store=self.evidence_store,
+                    config=config
+                )
+                controller.session.audit_name = config.audit_name
+                controller.session.target_name = config.target_name
+                controller.session.context_data["audit_name"] = config.audit_name
+                controller.session.context_data["target_name"] = config.target_name
+                self.controllers[audit_id] = controller
+                
+                await self._run_audit_loop(audit_id, controller, None)
+                return
+
             # Stage 1: Inspect target project
             await EVENT_MANAGER.emit(
                 audit_id=audit_id,

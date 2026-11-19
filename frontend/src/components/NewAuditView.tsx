@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Target, Search, Sliders, Play, AlertCircle, Loader2, ArrowLeft } from 'lucide-react';
+import { Target, Search, Sliders, Play, AlertCircle, Loader2, ArrowLeft, Globe, Folder } from 'lucide-react';
 import { AnalyzeProjectResponse, AuditConfig } from '../types/audit';
 import { analyzeProject, createAudit, startAudit } from '../services/api';
 
@@ -9,6 +9,8 @@ interface NewAuditViewProps {
 }
 
 export const NewAuditView: React.FC<NewAuditViewProps> = ({ onAuditStarted, onCancel }) => {
+  const [targetMode, setTargetMode] = useState<'url' | 'directory'>('url');
+  const [targetUrl, setTargetUrl] = useState('http://127.0.0.1:8080');
   const [auditName, setAuditName] = useState('');
   const [projectPath, setProjectPath] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
@@ -31,7 +33,6 @@ export const NewAuditView: React.FC<NewAuditViewProps> = ({ onAuditStarted, onCa
       setAnalysis(data);
       const rec = data.complexity.recommended_steps || 20;
       setSelectedSteps(rec);
-      // Auto-suggest audit name if not already typed by user
       if (!auditName.trim()) {
         const projTitle = data.project.name || 'Application';
         setAuditName(`${projTitle} Security Audit`);
@@ -44,20 +45,40 @@ export const NewAuditView: React.FC<NewAuditViewProps> = ({ onAuditStarted, onCa
   };
 
   const handleLaunch = async () => {
-    if (!analysis) return;
-    const finalName = auditName.trim() || `${analysis.project.name || 'Target'} Security Audit`;
-
-    setLaunching(true);
     setError(null);
+    setLaunching(true);
 
     try {
-      const config = await createAudit(
-        analysis.project.path,
-        selectedSteps,
-        analysis.project.name,
-        finalName
-      );
-      // startAudit now returns immediately since backend launches sandbox in background
+      let config: AuditConfig;
+      if (targetMode === 'url') {
+        if (!targetUrl.trim()) {
+          setError('Please provide a valid running application URL.');
+          setLaunching(false);
+          return;
+        }
+        const finalName = auditName.trim() || `Live App (${targetUrl.replace(/^https?:\/\//, '')}) Security Audit`;
+        config = await createAudit(
+          undefined,
+          selectedSteps,
+          'Live Target Application',
+          finalName,
+          targetUrl.trim()
+        );
+      } else {
+        if (!analysis) {
+          setError('Please inspect the project directory first.');
+          setLaunching(false);
+          return;
+        }
+        const finalName = auditName.trim() || `${analysis.project.name || 'Target'} Security Audit`;
+        config = await createAudit(
+          analysis.project.path,
+          selectedSteps,
+          analysis.project.name,
+          finalName
+        );
+      }
+
       await startAudit(config.audit_id);
       onAuditStarted(config);
     } catch (err: any) {
@@ -101,13 +122,52 @@ export const NewAuditView: React.FC<NewAuditViewProps> = ({ onAuditStarted, onCa
       <div className="ui-panel p-6 bg-white border border-slate-200 space-y-5">
         <div>
           <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+            Audit Mode
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setTargetMode('url')}
+              className={`p-3 rounded-lg border text-left flex items-start space-x-3 transition ${
+                targetMode === 'url'
+                  ? 'border-blue-600 bg-blue-50/50 text-blue-900'
+                  : 'border-slate-200 hover:border-slate-300 text-slate-700'
+              }`}
+            >
+              <Globe className={`w-5 h-5 mt-0.5 ${targetMode === 'url' ? 'text-blue-600' : 'text-slate-400'}`} />
+              <div>
+                <div className="font-semibold text-sm">Live Running Application</div>
+                <div className="text-xs text-slate-500 mt-0.5">Test apps running in IntelliJ, VS Code, or localhost</div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTargetMode('directory')}
+              className={`p-3 rounded-lg border text-left flex items-start space-x-3 transition ${
+                targetMode === 'directory'
+                  ? 'border-blue-600 bg-blue-50/50 text-blue-900'
+                  : 'border-slate-200 hover:border-slate-300 text-slate-700'
+              }`}
+            >
+              <Folder className={`w-5 h-5 mt-0.5 ${targetMode === 'directory' ? 'text-blue-600' : 'text-slate-400'}`} />
+              <div>
+                <div className="font-semibold text-sm">Docker Sandbox Build</div>
+                <div className="text-xs text-slate-500 mt-0.5">Build and isolate a local project directory in Docker</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
             Audit Name <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
             value={auditName}
             onChange={(e) => setAuditName(e.target.value)}
-            placeholder="e.g. Payment API Security Audit"
+            placeholder="e.g. Procurement API Security Audit"
             className="w-full px-3.5 py-2 rounded-md bg-white border border-slate-300 text-slate-900 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition shadow-sm"
           />
           <p className="text-xs text-slate-400 mt-1">
@@ -115,41 +175,95 @@ export const NewAuditView: React.FC<NewAuditViewProps> = ({ onAuditStarted, onCa
           </p>
         </div>
 
-        <div>
-          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-            Local Target Project Directory <span className="text-red-500">*</span>
-          </label>
-          <div className="flex flex-col sm:flex-row gap-2.5">
+        {targetMode === 'url' ? (
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              Live Target Base URL <span className="text-red-500">*</span>
+            </label>
             <input
               type="text"
-              value={projectPath}
-              onChange={(e) => setProjectPath(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
-              placeholder="e.g. C:\projects\payment-api or /path/to/target"
-              className="flex-1 px-3.5 py-2 rounded-md bg-white border border-slate-300 text-slate-900 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition shadow-sm"
+              value={targetUrl}
+              onChange={(e) => setTargetUrl(e.target.value)}
+              placeholder="e.g. http://127.0.0.1:8080 or http://localhost:8081"
+              className="w-full px-3.5 py-2 rounded-md bg-white border border-slate-300 text-slate-900 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition shadow-sm"
+            />
+            <p className="text-xs text-slate-400 mt-1">
+              StressX connects directly to your live running backend without needing Docker.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              Local Target Project Directory <span className="text-red-500">*</span>
+            </label>
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <input
+                type="text"
+                value={projectPath}
+                onChange={(e) => setProjectPath(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
+                placeholder="e.g. C:\projects\payment-api or /path/to/target"
+                className="flex-1 px-3.5 py-2 rounded-md bg-white border border-slate-300 text-slate-900 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition shadow-sm"
+              />
+              <button
+                onClick={handleAnalyze}
+                disabled={analyzing}
+                className="px-4 py-2 rounded-md bg-slate-900 hover:bg-slate-800 text-white font-medium text-sm flex items-center justify-center space-x-2 transition shadow-sm disabled:opacity-50"
+              >
+                {analyzing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                    <span>Analyzing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-4 h-4" />
+                    <span>Inspect Target</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              StressX validates build descriptors (pom.xml, package.json, docker-compose.yml) and enumerates surfaces.
+            </p>
+          </div>
+        )}
+
+        {targetMode === 'url' && (
+          <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Sliders className="w-4 h-4 text-slate-500" />
+              <span className="text-xs font-semibold text-slate-700">Attack Step Budget:</span>
+              <span className="text-xs font-bold text-blue-600 font-mono">{selectedSteps} steps</span>
+            </div>
+            <input
+              type="range"
+              min="5"
+              max="50"
+              step="1"
+              value={selectedSteps}
+              onChange={(e) => setSelectedSteps(Number(e.target.value))}
+              className="w-48 accent-blue-600"
             />
             <button
-              onClick={handleAnalyze}
-              disabled={analyzing}
-              className="px-4 py-2 rounded-md bg-slate-900 hover:bg-slate-800 text-white font-medium text-sm flex items-center justify-center space-x-2 transition shadow-sm disabled:opacity-50"
+              onClick={handleLaunch}
+              disabled={launching}
+              className="px-5 py-2.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm flex items-center space-x-2 transition shadow-sm disabled:opacity-50"
             >
-              {analyzing ? (
+              {launching ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-                  <span>Analyzing...</span>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Launching Audit...</span>
                 </>
               ) : (
                 <>
-                  <Search className="w-4 h-4" />
-                  <span>Inspect Target</span>
+                  <Play className="w-4 h-4 fill-white" />
+                  <span>Launch Live Audit</span>
                 </>
               )}
             </button>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            StressX validates build descriptors (pom.xml, package.json, docker-compose.yml) and enumerates surfaces.
-          </p>
-        </div>
+        )}
       </div>
 
       {/* Analysis Results & Budget Calibration */}

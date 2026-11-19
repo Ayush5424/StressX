@@ -44,10 +44,13 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
   const [sandboxProgressPct, setSandboxProgressPct] = useState<number>(10);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const streamEndRef = useRef<HTMLDivElement>(null);
+  const eventsContainerRef = useRef<HTMLDivElement>(null);
+  const refreshingRef = useRef<boolean>(false);
 
   // Incremental data synchronizer
   const refreshState = useCallback(async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
     try {
       const [surfData, actData, findData] = await Promise.all([
         fetchAuditSurface(auditId).catch(() => ({ endpoints: [] })),
@@ -64,6 +67,8 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
       setFindings(findData.findings || []);
     } catch (err) {
       console.error('Error refreshing audit state:', err);
+    } finally {
+      refreshingRef.current = false;
     }
   }, [auditId]);
 
@@ -138,11 +143,13 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
     return () => {
       es.close();
     };
-  }, [auditId, refreshState, phase, currentStep]);
+  }, [auditId]);
 
-  // Auto-scroll event stream smoothly
+  // Auto-scroll event stream smoothly within its own box, never jumping the browser window
   useEffect(() => {
-    streamEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (eventsContainerRef.current) {
+      eventsContainerRef.current.scrollTop = eventsContainerRef.current.scrollHeight;
+    }
   }, [events.length]);
 
   const handleStop = async () => {
@@ -386,16 +393,18 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
               <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
                 Event Stream
               </div>
-              <div className="space-y-2 font-mono text-xs">
-                {events.slice(-15).map((ev, i) => (
-                  <div key={i} className="p-2 rounded bg-slate-50 border border-slate-100 flex items-start space-x-2">
+              <div
+                ref={eventsContainerRef}
+                className="space-y-2 font-mono text-xs max-h-48 overflow-y-auto pr-1 border border-slate-100 rounded-md p-2 bg-slate-50/50"
+              >
+                {events.slice(-25).map((ev, i) => (
+                  <div key={i} className="p-2 rounded bg-white border border-slate-200/60 flex items-start space-x-2 shadow-2xs">
                     <span className="text-slate-400 text-[10px] shrink-0 mt-0.5">
                       {new Date(ev.timestamp).toLocaleTimeString()}
                     </span>
                     <span className="text-slate-700 flex-1">{ev.summary || ev.event_type}</span>
                   </div>
                 ))}
-                <div ref={streamEndRef} />
               </div>
             </div>
           </div>
