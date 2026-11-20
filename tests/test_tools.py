@@ -6,8 +6,7 @@ from app.tools.discover_http_surface import DiscoverHttpSurfaceTool
 from app.tools.record_evidence import RecordEvidenceTool
 
 
-@pytest.mark.asyncio
-async def test_tool_registry_registration():
+def test_tool_registry_registration():
     registry = ToolRegistry()
     tool_names = registry.list_tool_names()
     assert "discover_http_surface" in tool_names
@@ -17,6 +16,8 @@ async def test_tool_registry_registration():
     assert "compare_responses" in tool_names
     assert "record_evidence" in tool_names
     assert "finish_audit" in tool_names
+    assert "audit_access_control" in tool_names
+    assert "test_input_boundaries" in tool_names
 
 
 @pytest.mark.asyncio
@@ -39,6 +40,18 @@ async def test_tool_boundary_blocking():
 async def test_record_evidence_tool():
     target = Target(base_url="http://127.0.0.1:8088")
     session = AuditSession(target=target)
+    from app.models.observation import Observation
+    session.observations.append(Observation(
+        step=1,
+        tool="send_http_request",
+        target="/api/v1/debug/env",
+        summary="Leaked environment variables",
+        raw_data={
+            "request": {"method": "GET", "url": "/api/v1/debug/env"},
+            "status_code": 200,
+            "body": '{"DB_PASSWORD": "supersecret", "API_KEY": "secret123"}'
+        }
+    ))
     registry = ToolRegistry()
 
     obs = await registry.execute_tool(

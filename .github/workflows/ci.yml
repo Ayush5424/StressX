@@ -1,0 +1,97 @@
+name: StressX CI Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-test:
+    name: Backend Lint & Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff pytest pytest-asyncio
+
+      - name: Run Code Style & Syntax Check (Ruff)
+        run: |
+          ruff check app/ tests/ --select E9,F63,F7,F82 --output-format=github
+
+      - name: Run Unit & Tool Tests
+        env:
+          PYTHONPATH: .
+          STRESSX_MODEL_PROVIDER: mock
+        run: |
+          pytest tests/test_new_critical_tools.py tests/test_tools.py tests/test_target_boundary.py tests/test_evidence_store.py tests/test_metrics_logging.py -v
+
+  frontend-build:
+    name: Frontend Build & TypeScript Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: frontend/package.json
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm install
+
+      - name: Compile TypeScript & Build Production Assets
+        working-directory: ./frontend
+        run: npm run build
+
+      - name: Verify Compiled Static Bundle
+        run: |
+          test -f app/static/index.html || { echo "app/static/index.html missing after build!"; exit 1; }
+
+  docker-build:
+    name: Docker Image Build Validation
+    needs: [backend-test, frontend-build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Container
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: stressx:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -133,7 +133,7 @@ async def test_idempotency_tool_unhandled_500_detection(test_session):
 
     # Step 1: returns 201 Created. Step 2 (replay): returns 500 SQL unique constraint error.
     call_count = [0]
-    def mock_req(method, url, **kwargs):
+    async def mock_req(method, url, **kwargs):
         call_count[0] += 1
         if call_count[0] == 1:
             return MagicMock(status_code=201, text='{"id": "res_1"}', headers={})
@@ -164,7 +164,7 @@ async def test_idempotency_tool_duplicate_resource_detection(test_session):
 
     # Step 1: returns 201 with ID 1. Step 2: returns 201 with ID 2 (duplicate created!).
     call_count = [0]
-    def mock_req(method, url, **kwargs):
+    async def mock_req(method, url, **kwargs):
         call_count[0] += 1
         if call_count[0] == 1:
             return MagicMock(status_code=201, text='{"id": "res_1"}', headers={})
@@ -201,7 +201,13 @@ async def test_inject_failure_tool_lifecycle(test_session):
         MagicMock(status_code=200, text="OK", headers={})  # post recovery
     ]
 
-    with patch("httpx.AsyncClient.request", side_effect=mock_responses):
+    call_idx = [0]
+    async def mock_async_req(*args, **kwargs):
+        res = mock_responses[call_idx[0]]
+        call_idx[0] += 1
+        return res
+
+    with patch("httpx.AsyncClient.request", side_effect=mock_async_req):
         obs = await tool.execute(
             test_session,
             path="/api/simulation/fault",
