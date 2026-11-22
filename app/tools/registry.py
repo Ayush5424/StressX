@@ -19,6 +19,7 @@ from app.tools.audit_jwt_session import AuditJwtSessionTool
 from app.tools.scan_sensitive_data import ScanSensitiveDataTool
 from app.tools.probe_ssrf import ProbeSsrfTool
 from app.tools.audit_graphql_websocket import AuditGraphqlWebsocketTool
+from app.tools.audit_frontend_assets import AuditFrontendAssetsTool
 from app.tools.record_evidence import RecordEvidenceTool
 from app.tools.finish_audit import FinishAuditTool
 from app.models.session import AuditSession
@@ -55,6 +56,7 @@ class ToolRegistry:
             ScanSensitiveDataTool(),
             ProbeSsrfTool(),
             AuditGraphqlWebsocketTool(),
+            AuditFrontendAssetsTool(),
             RecordEvidenceTool(),
             FinishAuditTool()
         ]
