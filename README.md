@@ -61,6 +61,10 @@ Authorized Target Application
 StressX tests real-world application security and system design integrity across diverse attack families:
 
 - **Authentication & Authorization Testing:** Probes for missing access controls, unauthenticated administrative routes, token flaws, and Insecure Direct Object References (BOLA/IDOR).
+- **JWT & Session Security Auditing:** Evaluates JWT tokens for signature bypasses (`alg: none`, algorithm confusion), dictionary cracking of weak HMAC secrets, privilege escalation claims, missing session cookie flags (`HttpOnly`, `Secure`, `SameSite`), and permissive CORS origins with credentials.
+- **Sensitive Data & Secret Exposure Scanning:** Automated deep inspection of endpoint responses and debug configurations (`/.env`, `/actuator/env`) for leaked AWS credentials, private cryptographic keys, database connection URIs, Stripe/GitHub/Google tokens, RFC 1918 internal IPs, stack traces, and plaintext passwords.
+- **Server-Side Request Forgery (SSRF) Probing:** Probes URL, callback, and webhook parameters against cloud metadata endpoints (`169.254.169.254`, GCP metadata, Azure) and internal loopback interfaces (`127.0.0.1`, `[::1]`, decimal/hex bypass encodings) for direct reflection and blind SSRF.
+- **GraphQL & WebSocket Security Suite:** Evaluates GraphQL endpoints for production introspection exposure, field-suggestion enumeration, query depth/recursion DoS exhaustion, and query batching amplification. Inspects WebSocket handshakes for Cross-Site WebSocket Hijacking (CSWSH) and unauthenticated connection upgrades.
 - **Injection Testing:** Injects targeted SQL syntax delimiters and boolean logic payloads; verifies query tampering via differential response analysis.
 - **Rate-Limit & Abuse Testing:** Deploys adaptive pressure testing to determine throttling thresholds (HTTP 429), measure degradation curves, and verify post-burst recovery.
 - **Idempotency Testing:** Replays mutation requests sequentially and concurrently with identical `Idempotency-Key` headers to detect duplicate database state or unhandled 500 exceptions.

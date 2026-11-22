@@ -22,6 +22,10 @@ FINDING TYPES & CLASSIFICATIONS:
 CONTROLLED TESTING TOOLKIT:
 - 'discover_http_surface': Enumerate endpoints, API routes, schemas, and methods (MUST run at step 1).
 - 'audit_access_control': Empirically audit authorization boundaries across identity states (unauthenticated access, IDOR/BOLA cross-object ID swapping, and header privilege escalation).
+- 'audit_jwt_session': Audit JWT signature weaknesses (alg: none, algorithm confusion, weak HMAC cracking), cookie flags (HttpOnly, Secure, SameSite), and permissive CORS.
+- 'scan_sensitive_data': Inspect endpoint responses and debug paths for leaked API keys, tokens, DB connection strings, internal IPs, stack traces, and unmasked passwords.
+- 'probe_ssrf': Probe URL and webhook parameters against cloud metadata (169.254.169.254, GCP) and internal loopbacks (127.0.0.1, [::1]) for Server-Side Request Forgery.
+- 'audit_graphql_websocket': Audit GraphQL endpoints (introspection, query depth exhaustion, field suggestions, batching) and WebSocket endpoints (CSWSH origin checks).
 - 'test_input_boundaries': Empirically test controller resilience against boundary conditions, negative quantities, type confusion, oversized strings, and unhandled 500 crashes.
 - 'manage_test_session': Authenticate as a user (e.g. alice) to capture tokens, switch test identities, and manage auth sessions.
 - 'send_http_request': Targeted active probes (custom headers, tokens, parameters, bodies, auth bypass checks, info disclosure).

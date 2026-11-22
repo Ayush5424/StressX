@@ -15,6 +15,10 @@ from app.tools.test_idempotency import TestIdempotencyTool
 from app.tools.inject_failure import InjectFailureTool
 from app.tools.audit_access_control import AuditAccessControlTool
 from app.tools.test_input_boundaries import TestInputBoundariesTool
+from app.tools.audit_jwt_session import AuditJwtSessionTool
+from app.tools.scan_sensitive_data import ScanSensitiveDataTool
+from app.tools.probe_ssrf import ProbeSsrfTool
+from app.tools.audit_graphql_websocket import AuditGraphqlWebsocketTool
 from app.tools.record_evidence import RecordEvidenceTool
 from app.tools.finish_audit import FinishAuditTool
 from app.models.session import AuditSession
@@ -47,6 +51,10 @@ class ToolRegistry:
             InjectFailureTool(),
             AuditAccessControlTool(),
             TestInputBoundariesTool(),
+            AuditJwtSessionTool(),
+            ScanSensitiveDataTool(),
+            ProbeSsrfTool(),
+            AuditGraphqlWebsocketTool(),
             RecordEvidenceTool(),
             FinishAuditTool()
         ]
