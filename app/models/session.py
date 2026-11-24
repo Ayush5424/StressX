@@ -39,6 +39,7 @@ def generate_session_id() -> str:
 class AuditSession(BaseModel):
     """Encapsulates the state, history, hypotheses, and evidence of an autonomous security audit."""
     id: str = Field(default_factory=generate_session_id)
+    user_id: str = Field(default="default", description="Owner user identifier")
     audit_name: str = Field(default="Security Audit", description="User-facing audit name")
     target_name: str = Field(default="Target Application", description="Target application or project name")
     target: Target = Field(..., description="Target definition and boundary config")

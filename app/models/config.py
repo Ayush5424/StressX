@@ -52,6 +52,7 @@ class TargetComplexity(BaseModel):
 class AuditConfig(BaseModel):
     """Complete audit configuration establishing boundaries, step budgets, and target metadata."""
     audit_id: str = Field(default_factory=generate_audit_id)
+    user_id: str = "default"
     audit_name: str = "Security Audit"
     target_name: str = "Target Application"
     target_path: Optional[str] = None

@@ -20,6 +20,8 @@ import {
   fetchAuditSurface,
   fetchAuditActivity,
   fetchAuditFindings,
+  fetchAuditConfig,
+  getOrCreateUserId,
   stopAudit
 } from '../services/api';
 
@@ -74,9 +76,8 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
 
   useEffect(() => {
     // Immediate config load
-    fetch(`/api/audits/${auditId}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((cfg: AuditConfig | null) => {
+    fetchAuditConfig(auditId)
+      .then((cfg: AuditConfig) => {
         if (cfg) {
           setConfig(cfg);
           setMaxSteps(cfg.selected_steps || cfg.max_steps || 25);
@@ -84,12 +85,16 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
           if (cfg.phase) setPhase(cfg.phase);
         }
       })
-      .catch((err) => console.error('Failed to load initial audit config:', err));
+      .catch((err) => {
+        console.error('Failed to load initial audit config:', err);
+        setErrorMessage(err.message || 'Access denied or audit not found');
+      });
 
     refreshState();
 
-    // SSE EventSource Connection
-    const es = new EventSource(`/api/audits/${auditId}/events`);
+    // SSE EventSource Connection with scoped tenant user_id
+    const uid = getOrCreateUserId();
+    const es = new EventSource(`/api/audits/${auditId}/events?user_id=${encodeURIComponent(uid)}`);
 
     es.onmessage = (e) => {
       try {

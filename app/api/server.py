@@ -3,7 +3,7 @@ import json
 import asyncio
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect, Header, Query, Depends
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -41,6 +41,17 @@ class CreateAuditRequest(BaseModel):
     selected_steps: Optional[int] = None
     name: Optional[str] = None
     audit_name: Optional[str] = None
+
+
+async def get_current_user_id(
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    user_id: Optional[str] = Query(None)
+) -> str:
+    """Extracts user identity from X-User-ID header or ?user_id= query param, defaulting to 'default'."""
+    uid = x_user_id or user_id
+    if uid and uid.strip():
+        return uid.strip()
+    return "default"
 
 
 
@@ -85,7 +96,7 @@ async def analyze_project(req: AnalyzeProjectRequest):
 
 
 @api_app.post("/api/audits", response_model=AuditConfig)
-async def create_audit(req: CreateAuditRequest):
+async def create_audit(req: CreateAuditRequest, user_id: str = Depends(get_current_user_id)):
     """Registers an audit session with calculated complexity and recommended/selected step budget."""
     try:
         return AUDIT_MANAGER.create_audit(
@@ -93,7 +104,8 @@ async def create_audit(req: CreateAuditRequest):
             target_url=req.target_url,
             selected_steps=req.selected_steps,
             name=req.name,
-            audit_name=req.audit_name
+            audit_name=req.audit_name,
+            user_id=user_id
         )
     except FileNotFoundError as fnf:
         raise HTTPException(status_code=404, detail=str(fnf))
@@ -102,12 +114,14 @@ async def create_audit(req: CreateAuditRequest):
 
 
 @api_app.post("/api/audits/{audit_id}/start", response_model=AuditConfig)
-async def start_audit(audit_id: str):
+async def start_audit(audit_id: str, user_id: str = Depends(get_current_user_id)):
     """Deploys the target inside an isolated sandbox and launches autonomous attack testing."""
     try:
-        return await AUDIT_MANAGER.start_audit(audit_id)
+        return await AUDIT_MANAGER.start_audit(audit_id, user_id=user_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Audit not found")
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
@@ -115,26 +129,39 @@ async def start_audit(audit_id: str):
 
 
 @api_app.post("/api/audits/{audit_id}/stop")
-async def stop_audit(audit_id: str):
+async def stop_audit(audit_id: str, user_id: str = Depends(get_current_user_id)):
     """Signals active controller to stop gracefully, preserving evidence, partial report, and teardown."""
-    success = await AUDIT_MANAGER.stop_audit(audit_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Active audit not found or already stopped")
-    return {"status": "STOPPING", "audit_id": audit_id, "message": "Graceful stop requested."}
+    try:
+        success = await AUDIT_MANAGER.stop_audit(audit_id, user_id=user_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Active audit not found or already stopped")
+        return {"status": "STOPPING", "audit_id": audit_id, "message": "Graceful stop requested."}
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
 
 
 @api_app.get("/api/audits/{audit_id}", response_model=AuditConfig)
-async def get_audit(audit_id: str):
+async def get_audit(audit_id: str, user_id: str = Depends(get_current_user_id)):
     """Returns configuration and current status of an audit."""
-    config = AUDIT_MANAGER.get_audit(audit_id)
-    if not config:
-        raise HTTPException(status_code=404, detail="Audit not found")
-    return config
+    try:
+        config = AUDIT_MANAGER.get_audit(audit_id, user_id=user_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Audit not found")
+        return config
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
 
 
 @api_app.get("/api/audits/{audit_id}/events")
-async def stream_audit_events(audit_id: str):
+async def stream_audit_events(audit_id: str, user_id: str = Depends(get_current_user_id)):
     """Server-Sent Events (SSE) stream for real-time live dashboard monitoring with history replay."""
+    try:
+        config = AUDIT_MANAGER.get_audit(audit_id, user_id=user_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Audit not found")
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
+
     async def event_generator():
         try:
             async for event in EVENT_MANAGER.subscribe(audit_id):
@@ -154,8 +181,17 @@ async def stream_audit_events(audit_id: str):
 
 
 @api_app.websocket("/ws/audits/{audit_id}")
-async def websocket_audit_events(websocket: WebSocket, audit_id: str):
+async def websocket_audit_events(websocket: WebSocket, audit_id: str, user_id: Optional[str] = Query(None)):
     """WebSocket stream for low-latency live audit events."""
+    try:
+        config = AUDIT_MANAGER.get_audit(audit_id, user_id=user_id or "default")
+        if not config:
+            await websocket.close(code=4004)
+            return
+    except PermissionError:
+        await websocket.close(code=4003)
+        return
+
     await websocket.accept()
     try:
         async for event in EVENT_MANAGER.subscribe(audit_id):
@@ -167,43 +203,54 @@ async def websocket_audit_events(websocket: WebSocket, audit_id: str):
 
 
 @api_app.get("/api/audits/{audit_id}/surface")
-async def get_audit_surface(audit_id: str):
+async def get_audit_surface(audit_id: str, user_id: str = Depends(get_current_user_id)):
     """Returns categorized attack surfaces: discovered, testing, tested, invalid, blocked."""
-    return AUDIT_MANAGER.get_surface(audit_id)
+    try:
+        return AUDIT_MANAGER.get_surface(audit_id, user_id=user_id)
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
 
 
 @api_app.get("/api/audits/{audit_id}/activity")
-async def get_audit_activity(audit_id: str):
+async def get_audit_activity(audit_id: str, user_id: str = Depends(get_current_user_id)):
     """Returns real-time AI reasoning, current tool, hypothesis, and next decision."""
-    return AUDIT_MANAGER.get_activity(audit_id)
+    try:
+        return AUDIT_MANAGER.get_activity(audit_id, user_id=user_id)
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
 
 
 @api_app.get("/api/audits/{audit_id}/findings")
-async def get_audit_findings(audit_id: str):
+async def get_audit_findings(audit_id: str, user_id: str = Depends(get_current_user_id)):
     """Returns confirmed findings with full empirical evidence items and reproduction steps."""
-    findings = AUDIT_MANAGER.get_findings(audit_id)
-    return {"audit_id": audit_id, "total": len(findings), "findings": findings}
+    try:
+        findings = AUDIT_MANAGER.get_findings(audit_id, user_id=user_id)
+        return {"audit_id": audit_id, "total": len(findings), "findings": findings}
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
 
 
 @api_app.get("/api/reports")
-async def list_reports():
-    """Lists historical audit reports found in the audit_reports/ directory."""
-    return AUDIT_MANAGER.list_reports()
+async def list_reports(user_id: str = Depends(get_current_user_id)):
+    """Lists historical audit reports found in the audit_reports/ directory for current user."""
+    return AUDIT_MANAGER.list_reports(user_id=user_id)
 
 
 @api_app.get("/api/reports/{audit_id}")
-async def get_report_details(audit_id: str):
+async def get_report_details(audit_id: str, user_id: str = Depends(get_current_user_id)):
     """Returns complete audit dossier for report viewer: markdown, metrics, findings, actions, evidence."""
     try:
-        return AUDIT_MANAGER.get_report_details(audit_id)
+        return AUDIT_MANAGER.get_report_details(audit_id, user_id=user_id)
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Audit report not found")
 
 
 @api_app.get("/api/stats")
-async def get_stats():
-    """Returns global metrics for the dashboard overview cards."""
-    return AUDIT_MANAGER.get_global_stats()
+async def get_stats(user_id: str = Depends(get_current_user_id)):
+    """Returns global metrics for the dashboard overview cards scoped to current user."""
+    return AUDIT_MANAGER.get_global_stats(user_id=user_id)
 
 
 # Legacy API Compatibility Endpoints

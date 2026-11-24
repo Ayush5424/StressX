@@ -1,5 +1,6 @@
-import React from 'react';
-import { Shield, LayoutDashboard, PlusCircle, Activity, FileText } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Shield, LayoutDashboard, PlusCircle, Activity, FileText, UserCheck } from 'lucide-react';
+import { getOrCreateUserId } from '../services/api';
 
 interface HeaderProps {
   currentView: string;
@@ -8,6 +9,13 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, hasActiveAudit }) => {
+  const [userId, setUserId] = useState<string>('');
+
+  useEffect(() => {
+    setUserId(getOrCreateUserId());
+  }, []);
+
+  const shortId = userId.length > 12 ? `${userId.substring(0, 10)}...` : userId;
   return (
     <header className="border-b border-slate-200 bg-white sticky top-0 z-40 px-6 py-3 flex items-center justify-between shadow-sm">
       <div className="flex items-center space-x-6">
@@ -83,6 +91,15 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, hasAc
       </div>
 
       <div className="flex items-center space-x-3">
+        {userId && (
+          <div
+            className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded bg-slate-100 border border-slate-200 text-xs text-slate-600 font-mono"
+            title={`Isolated Workspace: ${userId}\nOnly your audits and reports are visible to this session.`}
+          >
+            <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>{shortId}</span>
+          </div>
+        )}
         <button
           onClick={() => onViewChange('new-audit')}
           className="px-3.5 py-1.5 rounded-md text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center space-x-1.5 transition"

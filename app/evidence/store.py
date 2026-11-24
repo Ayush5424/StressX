@@ -87,6 +87,7 @@ class EvidenceStore:
         report_file = audit_dir / "report.json"
         report_data = {
             "audit_id": session.id,
+            "user_id": getattr(session, "user_id", "default"),
             "audit_name": audit_name,
             "target_name": target_name,
             "target": redact_dict(session.target.model_dump()),
@@ -159,6 +160,7 @@ class EvidenceStore:
 
         data = {
             "session_id": session.id,
+            "user_id": getattr(session, "user_id", "default"),
             "target": redact_dict(session.target.model_dump()),
             "status": session.status.value,
             "start_time": session.start_time,

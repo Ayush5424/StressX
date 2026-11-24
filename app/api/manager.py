@@ -67,19 +67,12 @@ class AuditManager:
 
     def create_audit(
         self,
-        project_path: str,
-        selected_steps: Optional[int] = None,
-        name: Optional[str] = None
-    ) -> AuditConfig:
-        """Configures a new audit for a target, computing complexity and recommended budget."""
-        target_p = Path(project_path).resolve()
-    def create_audit(
-        self,
         project_path: Optional[str] = None,
         target_url: Optional[str] = None,
         selected_steps: Optional[int] = None,
         name: Optional[str] = None,
-        audit_name: Optional[str] = None
+        audit_name: Optional[str] = None,
+        user_id: str = "default"
     ) -> AuditConfig:
         """Inspects target or accepts running URL, registering a new audit session with explicit audit_name."""
         audit_id = f"audit_{uuid.uuid4().hex[:8]}"
@@ -102,6 +95,7 @@ class AuditManager:
             )
             config = AuditConfig(
                 audit_id=audit_id,
+                user_id=user_id,
                 audit_name=user_audit_name,
                 target_name=proj_name,
                 target_url=url,
@@ -115,7 +109,7 @@ class AuditManager:
                 status=AuditStatus.CONFIGURED
             )
             self.audits[audit_id] = config
-            logger.info(f"Created direct live URL audit configuration {audit_id} for {url}")
+            logger.info(f"Created direct live URL audit configuration {audit_id} for {url} (user: {user_id})")
             return config
 
         if not project_path:
@@ -138,6 +132,7 @@ class AuditManager:
 
         config = AuditConfig(
             audit_id=audit_id,
+            user_id=user_id,
             audit_name=user_audit_name,
             target_name=project_target_name,
             target_path=str(target_p),
@@ -172,11 +167,11 @@ class AuditManager:
         logger.info(f"Created audit configuration {audit_id} ('{user_audit_name}') for {project_target_name} with budget {effective_steps} steps")
         return config
 
-    async def start_audit(self, audit_id: str) -> AuditConfig:
+    async def start_audit(self, audit_id: str, user_id: Optional[str] = None) -> AuditConfig:
         """Initializes and begins asynchronous sandbox preparation and autonomous agent controller."""
-        config = self.audits.get(audit_id)
+        config = self.get_audit(audit_id, user_id=user_id)
         if not config:
-            raise KeyError(f"Audit {audit_id} not found")
+            raise KeyError(f"Audit {audit_id} not found or access denied")
 
         if config.status != AuditStatus.CONFIGURED:
             raise ValueError(f"Audit {audit_id} is already in state {config.status.value}")
@@ -244,6 +239,7 @@ class AuditManager:
                     evidence_store=self.evidence_store,
                     config=config
                 )
+                controller.session.user_id = config.user_id
                 controller.session.audit_name = config.audit_name
                 controller.session.target_name = config.target_name
                 controller.session.context_data["audit_name"] = config.audit_name
@@ -357,6 +353,7 @@ class AuditManager:
                 evidence_store=self.evidence_store,
                 config=config
             )
+            controller.session.user_id = config.user_id
             controller.session.audit_name = config.audit_name
             controller.session.target_name = config.target_name
             controller.session.context_data["audit_name"] = config.audit_name
@@ -456,30 +453,41 @@ class AuditManager:
                 except Exception as clean_err:
                     logger.warning(f"Error during sandbox cleanup for {audit_id}: {clean_err}")
 
-    async def stop_audit(self, audit_id: str) -> bool:
+    async def stop_audit(self, audit_id: str, user_id: Optional[str] = None) -> bool:
         """Triggers graceful stop of active audit controller and sandbox teardown."""
+        config = self.get_audit(audit_id, user_id=user_id)
+        if not config:
+            return False
+
         controller = self.controllers.get(audit_id)
-        config = self.audits.get(audit_id)
 
         if controller:
             controller.request_stop()
-            if config:
-                config.status = AuditStatus.STOPPING
-                await EVENT_MANAGER.emit(
-                    audit_id=audit_id,
-                    event_type=AuditEventType.STATUS_CHANGED,
-                    data={"status": "STOPPING"},
-                    summary="Audit status transitioned to STOPPING."
-                )
+            config.status = AuditStatus.STOPPING
+            await EVENT_MANAGER.emit(
+                audit_id=audit_id,
+                event_type=AuditEventType.STATUS_CHANGED,
+                data={"status": "STOPPING"},
+                summary="Audit status transitioned to STOPPING."
+            )
             logger.info(f"Stop signal sent to controller for audit {audit_id}")
             return True
         return False
 
-    def get_audit(self, audit_id: str) -> Optional[AuditConfig]:
-        return self.audits.get(audit_id)
+    def get_audit(self, audit_id: str, user_id: Optional[str] = None) -> Optional[AuditConfig]:
+        config = self.audits.get(audit_id)
+        if not config:
+            return None
+        if user_id and config.user_id != user_id:
+            logger.warning(f"Access denied: user '{user_id}' requested audit {audit_id} owned by '{config.user_id}'")
+            raise PermissionError(f"Access denied: Audit '{audit_id}' belongs to another user.")
+        return config
 
-    def get_surface(self, audit_id: str) -> Dict[str, Any]:
+    def get_surface(self, audit_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Returns the classified attack surface status for the UI panels."""
+        if not self.get_audit(audit_id, user_id=user_id):
+            return {"total": 0, "endpoints": []}
+
         controller = self.controllers.get(audit_id)
         if not controller:
             return {"total": 0, "endpoints": []}
@@ -529,8 +537,9 @@ class AuditManager:
             "endpoints": classified
         }
 
-    def get_activity(self, audit_id: str) -> Dict[str, Any]:
+    def get_activity(self, audit_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Provides real-time AI reasoning, current tool, hypothesis, and decision data."""
+        self.get_audit(audit_id, user_id=user_id)
         controller = self.controllers.get(audit_id)
         if not controller:
             return {"active": False}
@@ -563,22 +572,41 @@ class AuditManager:
             "total_findings": len(session.findings)
         }
 
-    def get_findings(self, audit_id: str) -> List[Dict[str, Any]]:
+    def get_findings(self, audit_id: str, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns confirmed findings with full empirical evidence items and reproduction steps."""
-        controller = self.controllers.get(audit_id)
-        if controller:
-            return [f.model_dump() for f in controller.session.findings]
+        if audit_id in self.audits:
+            cfg = self.audits[audit_id]
+            if user_id and cfg.user_id != user_id:
+                raise PermissionError(f"Access denied: Audit '{audit_id}' belongs to another user.")
+            controller = self.controllers.get(audit_id)
+            if controller:
+                return [f.model_dump() for f in controller.session.findings]
 
-        report_file = self.reports_dir / audit_id / "findings.json"
-        if report_file.exists():
+        rep_dir = self.reports_dir / audit_id
+        rep_file = rep_dir / "report.json"
+        find_file = rep_dir / "findings.json"
+
+        if rep_file.exists():
             try:
-                with open(report_file, "r", encoding="utf-8") as f:
+                with open(rep_file, "r", encoding="utf-8") as f:
+                    rep_data = json.load(f)
+                    f_uid = rep_data.get("user_id")
+                    if user_id and f_uid and f_uid != user_id:
+                        raise PermissionError(f"Access denied: Audit report '{audit_id}' belongs to another user.")
+            except PermissionError:
+                raise
+            except Exception:
+                pass
+
+        if find_file.exists():
+            try:
+                with open(find_file, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception:
                 pass
         return []
 
-    def list_reports(self) -> List[Dict[str, Any]]:
+    def list_reports(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Scans the audit_reports directory and returns metadata summaries for past audits."""
         reports = []
         seen_audit_ids = set()
@@ -592,9 +620,10 @@ class AuditManager:
                 find_json = p / "findings.json"
 
                 audit_id = p.name
-                seen_audit_ids.add(audit_id)
+                rep_user_id = None
                 data: Dict[str, Any] = {
                     "audit_id": audit_id,
+                    "user_id": "default",
                     "audit_name": "Security Audit",
                     "target_name": "Target Application",
                     "target": "Unknown Target",
@@ -616,6 +645,8 @@ class AuditManager:
                     try:
                         with open(rep_json, "r", encoding="utf-8") as f:
                             rep = json.load(f)
+                            rep_user_id = rep.get("user_id")
+                            data["user_id"] = rep_user_id or "default"
                             data["audit_name"] = rep.get("audit_name") or rep.get("name") or data["audit_name"]
                             data["target_name"] = rep.get("target_name") or (rep.get("target") or {}).get("name") or data["target_name"]
                             data["target"] = (rep.get("target") or {}).get("base_url", data["target"])
@@ -633,6 +664,15 @@ class AuditManager:
                                 data["low_count"] = sb.get("LOW", 0)
                     except Exception:
                         pass
+
+                # Enforce tenant isolation filter:
+                if user_id:
+                    if rep_user_id and rep_user_id != user_id:
+                        continue
+                    if not rep_user_id and user_id != "default":
+                        continue
+
+                seen_audit_ids.add(audit_id)
 
                 if met_json.exists():
                     try:
@@ -652,7 +692,7 @@ class AuditManager:
 
                 if find_json.exists():
                     try:
-                        with open(find_json, "r", encoding="utf-8") as f:
+                        with open(find_file, "r", encoding="utf-8") as f:
                             findings = json.load(f)
                             data["findings_count"] = len(findings)
                             data["critical_count"] = sum(1 for f in findings if f.get("severity") == "CRITICAL")
@@ -674,9 +714,12 @@ class AuditManager:
 
         # Merge active / configured in-memory audits not yet persisted to disk
         for a_id, cfg in self.audits.items():
+            if user_id and cfg.user_id != user_id:
+                continue
             if a_id not in seen_audit_ids:
                 reports.append({
                     "audit_id": a_id,
+                    "user_id": cfg.user_id,
                     "audit_name": cfg.audit_name,
                     "target_name": cfg.target_name,
                     "target": cfg.target_url or cfg.target_path or "Target Application",
@@ -697,16 +740,21 @@ class AuditManager:
         reports.sort(key=lambda r: str(r.get("timestamp", "")), reverse=True)
         return reports
 
-    def get_report_details(self, audit_id: str) -> Dict[str, Any]:
+    def get_report_details(self, audit_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Loads complete dossier for an audit report including markdown, metrics, findings, actions, and evidence."""
         rep_dir = self.reports_dir / audit_id
         if not rep_dir.exists():
             cfg = self.audits.get(audit_id)
+            if not cfg:
+                raise FileNotFoundError(f"Report dossier not found for {audit_id}")
+            if user_id and cfg.user_id != user_id:
+                raise PermissionError(f"Access denied: Audit '{audit_id}' belongs to another user.")
             ctrl = self.controllers.get(audit_id)
-            if cfg and ctrl:
+            if ctrl:
                 sess = ctrl.session
                 return {
                     "audit_id": audit_id,
+                    "user_id": cfg.user_id,
                     "audit_name": cfg.audit_name,
                     "target_name": cfg.target_name,
                     "duration": cfg.duration or "In Progress",
@@ -715,6 +763,7 @@ class AuditManager:
                     "actions": [a.model_dump() for a in sess.attack_attempts],
                     "report": {
                         "audit_id": audit_id,
+                        "user_id": cfg.user_id,
                         "audit_name": cfg.audit_name,
                         "target_name": cfg.target_name,
                         "status": cfg.status.value,
@@ -725,6 +774,23 @@ class AuditManager:
                     }
                 }
             raise FileNotFoundError(f"Report dossier not found for {audit_id}")
+
+        rep_file = rep_dir / "report.json"
+        if rep_file.exists():
+            try:
+                with open(rep_file, "r", encoding="utf-8") as rf:
+                    rep_data = json.load(rf)
+                    f_uid = rep_data.get("user_id")
+                    if user_id and f_uid and f_uid != user_id:
+                        raise PermissionError(f"Access denied: Audit report '{audit_id}' belongs to another user.")
+            except PermissionError:
+                raise
+            except Exception:
+                pass
+        elif audit_id in self.audits:
+            cfg = self.audits[audit_id]
+            if user_id and cfg.user_id != user_id:
+                raise PermissionError(f"Access denied: Audit '{audit_id}' belongs to another user.")
 
         result: Dict[str, Any] = {"audit_id": audit_id}
 
@@ -757,12 +823,14 @@ class AuditManager:
 
         if result.get("report"):
             rep = result["report"]
+            result["user_id"] = rep.get("user_id", "default")
             result["audit_name"] = rep.get("audit_name", "Security Audit")
             result["target_name"] = rep.get("target_name", "Target Application")
             result["duration"] = rep.get("duration", "")
             result["status"] = rep.get("status", "COMPLETED")
         elif audit_id in self.audits:
             cfg = self.audits[audit_id]
+            result["user_id"] = cfg.user_id
             result["audit_name"] = cfg.audit_name
             result["target_name"] = cfg.target_name
             result["duration"] = cfg.duration or ""
@@ -770,9 +838,28 @@ class AuditManager:
 
         return result
 
-    def get_global_stats(self) -> Dict[str, Any]:
+    def get_global_stats(self, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Computes summary statistics across active audits and past reports."""
-        reports = self.list_reports()
+        reports = self.list_reports(user_id=user_id)
+        total_reports = len(reports)
+        total_findings = sum(r.get("findings_count", 0) for r in reports)
+        critical_findings = sum(r.get("critical_count", 0) for r in reports)
+
+        active_count = sum(
+            1 for a in self.audits.values()
+            if a.status in (AuditStatus.RUNNING, AuditStatus.STOPPING)
+            and (not user_id or a.user_id == user_id)
+        )
+
+        unique_targets = set(r.get("target") for r in reports if r.get("target"))
+
+        return {
+            "active_audits": active_count,
+            "total_audits": total_reports,
+            "total_findings": total_findings,
+            "critical_findings": critical_findings,
+            "unique_projects_tested": len(unique_targets)
+        }
         total_reports = len(reports)
         total_findings = sum(r.get("findings_count", 0) for r in reports)
         critical_findings = sum(r.get("critical_count", 0) for r in reports)
