@@ -557,6 +557,15 @@ class AutonomousSecurityReasoningEngine(LocalModel):
         # =========================================================================
         # DYNAMIC REASONING ENGINE FOR LIVE APPLICATIONS (NO HARDCODED ROUTES)
         # =========================================================================
+        # Extract max_steps from prompt_context if available (e.g. "Step: 10 / 20")
+        max_steps = 20
+        m_step = re.search(r"Step:\s*\d+\s*/\s*(\d+)", prompt_context)
+        if m_step:
+            try:
+                max_steps = int(m_step.group(1))
+            except Exception:
+                pass
+
         if seq == 1:
             return AgentDecision(
                 reasoning_summary="Target surface identified. Initiating active reconnaissance to enumerate routes, methods, and API definitions.",
@@ -569,6 +578,15 @@ class AutonomousSecurityReasoningEngine(LocalModel):
         candidate_eps = [e for e in discovered_eps if e != "/"]
         primary_target = candidate_eps[0] if candidate_eps else (discovered_eps[0] if discovered_eps else "/")
         secondary_target = candidate_eps[1] if len(candidate_eps) > 1 else primary_target
+
+        # Check if audit has reached near budget limit (leave 1 step for finish_audit)
+        if seq >= max_steps:
+            return AgentDecision(
+                reasoning_summary="Budget step limit reached. Finalizing audit session and compiling verified findings.",
+                next_action="Conclude autonomous audit session.",
+                tool="finish_audit",
+                arguments={"summary": f"Audit budget of {max_steps} steps reached. Audit completed across all discovered surfaces."}
+            )
 
         if seq == 2:
             return AgentDecision(
@@ -586,19 +604,33 @@ class AutonomousSecurityReasoningEngine(LocalModel):
             )
         elif seq == 4:
             return AgentDecision(
+                reasoning_summary=f"Scanning endpoint responses and headers on {primary_target} for sensitive credentials, keys, or stack traces.",
+                next_action=f"Scan sensitive data exposure on {primary_target}.",
+                tool="scan_sensitive_data",
+                arguments={"path": primary_target}
+            )
+        elif seq == 5:
+            return AgentDecision(
                 reasoning_summary=f"Testing input validation boundaries, type confusion, and error handling on {primary_target}.",
                 next_action=f"Test input boundaries on {primary_target}.",
                 tool="test_input_boundaries",
                 arguments={"path": primary_target, "method": "GET"}
             )
-        elif seq == 5:
+        elif seq == 6:
             return AgentDecision(
                 reasoning_summary=f"Auditing JWT session configuration, cookie flags, and CORS policies on {primary_target}.",
                 next_action=f"Audit JWT and session posture on {primary_target}.",
                 tool="audit_jwt_session",
                 arguments={"path": primary_target}
             )
-        elif seq == 6:
+        elif seq == 7:
+            return AgentDecision(
+                reasoning_summary=f"Testing client-side assets and frontend JavaScript bundles for leaked tokens, API routes, or secrets.",
+                next_action="Audit frontend assets for exposed tokens or sourcemaps.",
+                tool="audit_frontend_assets",
+                arguments={"path": "/"}
+            )
+        elif seq == 8:
             return AgentDecision(
                 reasoning_summary=f"Testing sequential mutation replay and idempotency safety on {secondary_target}.",
                 next_action=f"Execute idempotency test against {secondary_target}.",
@@ -612,14 +644,21 @@ class AutonomousSecurityReasoningEngine(LocalModel):
                     "replay_count": 2
                 }
             )
-        elif seq == 7:
+        elif seq == 9:
+            return AgentDecision(
+                reasoning_summary=f"Establishing healthy latency and status distribution baseline before load testing {primary_target}.",
+                next_action=f"Measure baseline for {primary_target}.",
+                tool="measure_baseline",
+                arguments={"method": "GET", "path": primary_target, "sample_count": 5}
+            )
+        elif seq == 10:
             return AgentDecision(
                 reasoning_summary=f"Evaluating concurrent race condition resilience and database locking on {primary_target}.",
                 next_action=f"Execute concurrency test on {primary_target}.",
                 tool="concurrency_test",
                 arguments={"path": primary_target, "method": "GET", "concurrency_level": 5}
             )
-        elif seq == 8:
+        elif seq == 11:
             return AgentDecision(
                 reasoning_summary=f"Executing controlled adaptive pressure test on {primary_target} to observe rate limiting and backpressure.",
                 next_action=f"Execute pressure test on {primary_target}.",
@@ -632,8 +671,49 @@ class AutonomousSecurityReasoningEngine(LocalModel):
                     "concurrency": 3
                 }
             )
-        elif seq == 9:
-            # If an observation produced suggested findings, record evidence
+        elif seq == 12:
+            return AgentDecision(
+                reasoning_summary=f"Probing parameters on {primary_target} against cloud metadata and internal loopback addresses for SSRF.",
+                next_action=f"Probe SSRF vulnerabilities on {primary_target}.",
+                tool="probe_ssrf",
+                arguments={"path": primary_target, "param_name": "url"}
+            )
+        elif seq == 13:
+            return AgentDecision(
+                reasoning_summary=f"Testing secondary endpoint {secondary_target} for differential response behavior.",
+                next_action=f"Send GET request to secondary target {secondary_target}.",
+                tool="send_http_request",
+                arguments={"method": "GET", "path": secondary_target}
+            )
+        elif seq == 14:
+            return AgentDecision(
+                reasoning_summary=f"Testing input validation boundaries on secondary surface {secondary_target}.",
+                next_action=f"Test input boundaries on {secondary_target}.",
+                tool="test_input_boundaries",
+                arguments={"path": secondary_target, "method": "GET"}
+            )
+        elif seq == 15:
+            return AgentDecision(
+                reasoning_summary=f"Testing concurrency contention and throughput resilience on secondary surface {secondary_target}.",
+                next_action=f"Execute concurrency test on {secondary_target}.",
+                tool="concurrency_test",
+                arguments={"path": secondary_target, "method": "GET", "concurrency_level": 4}
+            )
+        elif seq == 16:
+            return AgentDecision(
+                reasoning_summary=f"Auditing root landing surface for unauthenticated information leakage.",
+                next_action="Send GET request to root path /.",
+                tool="send_http_request",
+                arguments={"method": "GET", "path": "/"}
+            )
+        elif seq == 17:
+            return AgentDecision(
+                reasoning_summary="Auditing session authentication handling across non-existent path to verify error disclosure.",
+                next_action="Send GET request to non-existent route to check error format.",
+                tool="send_http_request",
+                arguments={"method": "GET", "path": "/api/v1/nonexistent_health_probe"}
+            )
+        elif seq == 18:
             return AgentDecision(
                 reasoning_summary=f"Assessing observations from testing {primary_target} to record confirmed security findings.",
                 next_action="Record verified security observation.",
@@ -654,9 +734,16 @@ class AutonomousSecurityReasoningEngine(LocalModel):
                     "remediation": "Enforce strict authentication and authorization checks on all production API endpoints."
                 }
             )
+        elif seq < max_steps:
+            return AgentDecision(
+                reasoning_summary=f"Running verification probe on {primary_target} before concluding budget.",
+                next_action=f"Send GET request to {primary_target}.",
+                tool="send_http_request",
+                arguments={"method": "GET", "path": primary_target}
+            )
         else:
             return AgentDecision(
-                reasoning_summary="All prioritized test hypotheses evaluated against target application. Finalizing audit session.",
+                reasoning_summary="All prioritized test hypotheses evaluated against target application across step budget. Finalizing audit session.",
                 next_action="Conclude autonomous audit session.",
                 tool="finish_audit",
                 arguments={"summary": "Target autonomous audit completed across discovered routes."}
