@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: stressx-auditor
+    runtime: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /
+    envVars:
+      - key: STRESSX_MODEL_PROVIDER
+        value: fallback
+      - key: STRESSX_LOG_LEVEL
+        value: INFO
+      - key: STRESSX_REPORTS_DIR
+        value: audit_reports

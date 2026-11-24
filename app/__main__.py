@@ -54,10 +54,12 @@ def render_step_callback(step: int, decision: AgentDecision, observation: Observ
 async def main():
     if any(arg in sys.argv for arg in ("--web", "--dashboard", "serve", "-w")):
         import uvicorn
-        host = os.environ.get("STRESSX_WEB_HOST", "127.0.0.1")
-        port = int(os.environ.get("STRESSX_WEB_PORT", "8585"))
+        # Respect cloud platform PORT (Render, Railway, Heroku) and STRESSX_WEB_HOST
+        cloud_port = os.environ.get("PORT")
+        host = os.environ.get("STRESSX_WEB_HOST", "0.0.0.0" if cloud_port else "127.0.0.1")
+        port = int(cloud_port or os.environ.get("STRESSX_WEB_PORT", "8585"))
         for arg in sys.argv:
-            if arg.startswith("--port="):
+            if arg.startswith("--port=") and not cloud_port:
                 try:
                     port = int(arg.split("=")[1])
                 except Exception:

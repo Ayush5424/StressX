@@ -19,6 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 8585 8088 8000
+EXPOSE 8585 8088 8000 10000
 
-CMD ["python", "-m", "app", "--web", "--host=0.0.0.0", "--port=8585"]
+CMD ["python", "-m", "app", "--web", "--host=0.0.0.0"]
