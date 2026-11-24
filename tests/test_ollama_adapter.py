@@ -4,6 +4,7 @@ import httpx
 from app.models.decision import AgentDecision
 from app.models.adapter import (
     OllamaLocalModel,
+    CloudAPIModel,
     ModelFactory,
     OllamaModelNotFoundError,
     OllamaAPIError,
@@ -115,3 +116,56 @@ def test_model_factory_explicit_fallback_mode(monkeypatch):
     monkeypatch.setenv("STRESSX_MODEL_PROVIDER", "fallback")
     engine = ModelFactory.get_model()
     assert isinstance(engine, AutonomousSecurityReasoningEngine)
+
+
+def test_cloud_api_model_generate_structured():
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/chat/completions")
+        assert request.headers.get("Authorization") == "Bearer sk-test-fake-key"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["model"] == "gpt-4o-mini"
+        assert payload["response_format"] == {"type": "json_object"}
+
+        response_json = {
+            "choices": [{
+                "message": {
+                    "content": json.dumps({
+                        "reasoning_summary": "Cloud reasoning: checking for exposed endpoints.",
+                        "next_action": "Probe auth endpoint",
+                        "tool": "send_http_request",
+                        "arguments": {"method": "GET", "path": "/api/v1/auth/status"}
+                    })
+                }
+            }]
+        }
+        return httpx.Response(200, json=response_json)
+
+    transport = httpx.MockTransport(mock_handler)
+    model = CloudAPIModel(api_key="sk-test-fake-key", model_name="gpt-4o-mini", base_url="https://api.openai.com/v1")
+    model.client = httpx.Client(base_url="https://api.openai.com/v1", transport=transport)
+
+    decision = model.generate_structured("Analyze state", AgentDecision)
+    assert isinstance(decision, AgentDecision)
+    assert decision.tool == "send_http_request"
+    assert decision.arguments.get("path") == "/api/v1/auth/status"
+
+
+def test_model_factory_cloud_openai_mode(monkeypatch):
+    monkeypatch.setenv("STRESSX_MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-sample-key")
+    monkeypatch.setenv("STRESSX_MODEL_NAME", "gpt-4o-mini")
+
+    model = ModelFactory.get_model()
+    assert isinstance(model, CloudAPIModel)
+    assert model.model_name == "gpt-4o-mini"
+
+
+def test_model_factory_cloud_missing_key_raises(monkeypatch):
+    monkeypatch.setenv("STRESSX_MODEL_PROVIDER", "openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("STRESSX_API_KEY", raising=False)
+
+    with pytest.raises(ValueError) as exc:
+        ModelFactory.get_model()
+    assert "requires OPENAI_API_KEY or STRESSX_API_KEY" in str(exc.value)
+

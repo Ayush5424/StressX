@@ -225,6 +225,97 @@ class OllamaLocalModel(LocalModel):
         self.client.close()
 
 
+class CloudAPIModel(LocalModel):
+    """Adapter connecting to any OpenAI-compatible Cloud LLM API (OpenAI, OpenRouter, Groq, DeepSeek, vLLM)."""
+
+    def __init__(
+        self,
+        api_key: str,
+        model_name: str = "gpt-4o-mini",
+        base_url: str = "https://api.openai.com/v1",
+        timeout_seconds: float = 60.0
+    ):
+        self.api_key = api_key
+        self.model_name = model_name
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout_seconds
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        self.client = httpx.Client(
+            base_url=self.base_url,
+            headers=self.headers,
+            timeout=httpx.Timeout(self.timeout, connect=15.0)
+        )
+
+    def generate(self, prompt: str, system: Optional[str] = None) -> str:
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": self.model_name,
+            "messages": messages
+        }
+        resp = self.client.post("/chat/completions", json=payload, headers=self.headers)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Cloud API returned HTTP {resp.status_code}: {resp.text}")
+        data = resp.json()
+        return data["choices"][0]["message"]["content"].strip()
+
+    def generate_structured(self, prompt: str, response_schema: Type[T], system: Optional[str] = None) -> T:
+        augmented_prompt = (
+            f"{prompt}\n\n"
+            f"INSTRUCTION: Choose the single next security test action.\n"
+            f"You MUST respond with a JSON object containing your actual decision values (NOT a schema definition).\n"
+            f"Required JSON structure:\n"
+            f'{{\n  "reasoning_summary": "<your reasoning based on observations>",\n  "next_action": "<specific action to execute>",\n  "tool": "<tool_name>",\n  "arguments": {{}}\n}}\n'
+            f"Output raw JSON only. Do not include markdown fences or conversational text."
+        )
+
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": augmented_prompt})
+
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": messages,
+            "response_format": {"type": "json_object"}
+        }
+
+        resp = self.client.post("/chat/completions", json=payload, headers=self.headers)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Cloud API returned HTTP {resp.status_code}: {resp.text}")
+
+        data = resp.json()
+        raw_text = data["choices"][0]["message"]["content"].strip()
+        parsed = OllamaLocalModel._extract_json(raw_text)
+
+        # Sanitize tool name
+        if "tool" in parsed and isinstance(parsed["tool"], str):
+            clean_tool = parsed["tool"].strip().strip("\"'").replace("()", "")
+            if "." in clean_tool:
+                clean_tool = clean_tool.split(".")[-1]
+            parsed["tool"] = clean_tool
+
+        # Normalize arguments
+        if "arguments" in parsed and isinstance(parsed["arguments"], str):
+            try:
+                parsed["arguments"] = json.loads(parsed["arguments"])
+            except Exception:
+                parsed["arguments"] = {}
+        elif "arguments" not in parsed or parsed.get("arguments") is None:
+            parsed["arguments"] = {}
+
+        return response_schema.model_validate(parsed)
+
+    def close(self) -> None:
+        self.client.close()
+
+
 class AutonomousSecurityReasoningEngine(LocalModel):
     """Local deterministic cognitive reasoning engine for autonomous security auditing.
     
@@ -519,10 +610,30 @@ class ModelFactory:
         requested_model = os.getenv("STRESSX_MODEL_NAME")
         ollama_url = os.getenv("STRESSX_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 
-        # Explicit fallback requested by configuration
-        if provider in ("fallback", "heuristic", "mock"):
+        # Explicit deterministic fallback engine (Zero external AI dependencies required)
+        if provider in ("fallback", "heuristic", "mock", "builtin", "none"):
             logger.info("Using deterministic AutonomousSecurityReasoningEngine (explicit fallback mode).")
             return AutonomousSecurityReasoningEngine()
+
+        # Cloud LLM API (OpenAI / OpenRouter / Groq / DeepSeek / Any OpenAI-compatible provider)
+        if provider in ("openai", "cloud", "openrouter", "groq", "api"):
+            api_key = os.getenv("OPENAI_API_KEY") or os.getenv("STRESSX_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    f"STRESSX_MODEL_PROVIDER='{provider}' requires OPENAI_API_KEY or STRESSX_API_KEY environment variable."
+                )
+            base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            default_model = "gpt-4o-mini"
+            if provider == "groq":
+                base_url = os.getenv("OPENAI_BASE_URL", "https://api.groq.com/openai/v1")
+                default_model = "llama-3.3-70b-versatile"
+            elif provider == "openrouter":
+                base_url = os.getenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+                default_model = "openai/gpt-4o-mini"
+
+            model_name = requested_model or os.getenv("STRESSX_MODEL_NAME", default_model)
+            logger.info(f"Using Cloud API LLM provider at {base_url} (model: '{model_name}').")
+            return CloudAPIModel(api_key=api_key, model_name=model_name, base_url=base_url)
 
         if provider in ("local", "ollama", "local_ollama"):
             # Verify Ollama server availability
@@ -549,7 +660,7 @@ class ModelFactory:
 
         raise ValueError(
             f"Unsupported STRESSX_MODEL_PROVIDER: '{provider}'. "
-            "Supported providers: 'local' (or 'ollama'), 'fallback'."
+            "Supported providers: 'fallback' (built-in, zero dependencies), 'openai' / 'cloud' / 'openrouter' / 'groq' (API key), 'local' / 'ollama'."
         )
 
     @staticmethod

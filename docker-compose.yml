@@ -9,21 +9,24 @@ services:
     ports:
       - "8585:8585"
     environment:
+      # Use built-in deterministic autonomous reasoning engine by default (ZERO external dependencies or GPU needed)
+      - STRESSX_MODEL_PROVIDER=${STRESSX_MODEL_PROVIDER:-fallback}
       - STRESSX_WEB_HOST=0.0.0.0
       - STRESSX_WEB_PORT=8585
       - STRESSX_LOG_LEVEL=INFO
       - STRESSX_REPORTS_DIR=audit_reports
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - STRESSX_MODEL=llama3:8b
+      # Optional: set OPENAI_API_KEY if using STRESSX_MODEL_PROVIDER=openai or groq
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - STRESSX_MODEL_NAME=${STRESSX_MODEL_NAME:-}
     volumes:
       # Allow StressX to spin up isolated Docker sandboxes for audited target repositories
       - /var/run/docker.sock:/var/run/docker.sock
       # Persist generated audit dossiers and reports across restarts
       - ./audit_reports:/opt/stressx/audit_reports
     restart: unless-stopped
-    depends_on:
-      - ollama
 
+  # Optional local Ollama service (only started if --profile with-ollama is specified)
   ollama:
     image: ollama/ollama:latest
     container_name: stressx-ollama
@@ -32,6 +35,8 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
+    profiles:
+      - with-ollama
 
 volumes:
   ollama_data:
