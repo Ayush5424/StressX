@@ -2,7 +2,9 @@ FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    STRESSX_MODEL_PROVIDER=local
+    STRESSX_MODEL_PROVIDER=local \
+    STRESSX_WEB_HOST=0.0.0.0 \
+    STRESSX_WEB_PORT=8585
 
 WORKDIR /opt/stressx
 
@@ -17,6 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 8000 8088 8585
+EXPOSE 8585 8088 8000
 
-CMD ["python", "-m", "app"]
+CMD ["python", "-m", "app", "--web", "--host=0.0.0.0", "--port=8585"]

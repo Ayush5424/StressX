@@ -54,15 +54,18 @@ def render_step_callback(step: int, decision: AgentDecision, observation: Observ
 async def main():
     if any(arg in sys.argv for arg in ("--web", "--dashboard", "serve", "-w")):
         import uvicorn
-        port = 8585
+        host = os.environ.get("STRESSX_WEB_HOST", "127.0.0.1")
+        port = int(os.environ.get("STRESSX_WEB_PORT", "8585"))
         for arg in sys.argv:
             if arg.startswith("--port="):
                 try:
                     port = int(arg.split("=")[1])
                 except Exception:
                     pass
-        console.print(f"[bold cyan]Launching StressX Web Dashboard on http://127.0.0.1:{port} ...[/bold cyan]")
-        config = uvicorn.Config("app.api.server:api_app", host="127.0.0.1", port=port, log_level="info")
+            elif arg.startswith("--host="):
+                host = arg.split("=")[1].strip()
+        console.print(f"[bold cyan]Launching StressX Web Dashboard on http://{host}:{port} ...[/bold cyan]")
+        config = uvicorn.Config("app.api.server:api_app", host=host, port=port, log_level="info")
         server = uvicorn.Server(config)
         await server.serve()
         return
