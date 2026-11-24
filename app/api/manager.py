@@ -692,7 +692,7 @@ class AuditManager:
 
                 if find_json.exists():
                     try:
-                        with open(find_file, "r", encoding="utf-8") as f:
+                        with open(find_json, "r", encoding="utf-8") as f:
                             findings = json.load(f)
                             data["findings_count"] = len(findings)
                             data["critical_count"] = sum(1 for f in findings if f.get("severity") == "CRITICAL")
