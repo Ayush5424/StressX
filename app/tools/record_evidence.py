@@ -194,6 +194,22 @@ class RecordEvidenceTool(BaseTool):
             causal_chain = list(matched_obs_raw["causal_chain"])
 
         if target_obs.tool in ("pressure_test", "concurrency_test", "test_idempotency", "inject_failure"):
+            # Ensure target was actually reachable during experiment
+            status_dist = matched_obs_raw.get("status_distribution") or matched_obs_raw.get("statuses") or {}
+            keys = set(str(k) for k in status_dist.keys())
+            if keys == {"0"} or (len(keys) == 1 and "0" in keys):
+                return Observation(
+                    step=session.step_count,
+                    tool=self.name,
+                    target=endpoint,
+                    summary=f"EVIDENCE REJECTED: All {target_obs.tool} requests failed with connection errors (status 0). The target was unreachable. Rate limiting or resilience findings cannot be inferred against an unreachable server.",
+                    key_insights=[
+                        "Findings must be backed by real HTTP responses, not connection failures.",
+                        "Verify target reachability before evaluating resilience."
+                    ],
+                    raw_data={"rejected": True, "reason": "unreachable_target_connection_error"}
+                )
+
             obs_fact = matched_obs_raw.get("observed_facts", target_obs.summary)
             inf_conc = matched_obs_raw.get("inferred_conclusion", "Experimental verification evaluation.")
             base_metrics = {"mean_ms": matched_obs_raw.get("baseline_mean_ms") or matched_obs_raw.get("baseline_latency_ms", 0.0)}

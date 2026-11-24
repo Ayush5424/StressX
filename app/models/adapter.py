@@ -357,6 +357,15 @@ class AutonomousSecurityReasoningEngine(LocalModel):
                 if m and m.group(1) not in discovered_eps:
                     discovered_eps.append(m.group(1))
 
+        # Abort if target is completely unreachable to prevent false-positive hallucinated findings
+        if "ConnectError" in prompt_context or "All connection attempts failed" in prompt_context or "Connection refused" in prompt_context:
+            return AgentDecision(
+                reasoning_summary="Target application is unreachable (ConnectError). Concluding audit early to avoid false positive findings.",
+                next_action="Conclude autonomous audit session due to unreachable target.",
+                tool="finish_audit",
+                arguments={"summary": "Target application is unreachable. Audit concluded."}
+            )
+
         if not has_debug:
             if seq == 1:
                 return AgentDecision(

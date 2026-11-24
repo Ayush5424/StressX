@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Target, Search, Sliders, Play, AlertCircle, Loader2, ArrowLeft, Globe, Folder } from 'lucide-react';
+import { Target, Search, Sliders, Play, AlertCircle, AlertTriangle, Loader2, ArrowLeft, Globe, Folder } from 'lucide-react';
 import { AnalyzeProjectResponse, AuditConfig } from '../types/audit';
 import { analyzeProject, createAudit, startAudit } from '../services/api';
 
@@ -10,7 +10,7 @@ interface NewAuditViewProps {
 
 export const NewAuditView: React.FC<NewAuditViewProps> = ({ onAuditStarted, onCancel }) => {
   const [targetMode, setTargetMode] = useState<'url' | 'directory'>('url');
-  const [targetUrl, setTargetUrl] = useState('http://127.0.0.1:8080');
+  const [targetUrl, setTargetUrl] = useState('');
   const [auditName, setAuditName] = useState('');
   const [projectPath, setProjectPath] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
@@ -184,9 +184,20 @@ export const NewAuditView: React.FC<NewAuditViewProps> = ({ onAuditStarted, onCa
               type="text"
               value={targetUrl}
               onChange={(e) => setTargetUrl(e.target.value)}
-              placeholder="e.g. http://127.0.0.1:8080 or http://localhost:8081"
+              placeholder="e.g. https://my-app.onrender.com or https://abc-123.ngrok-free.app"
               className="w-full px-3.5 py-2 rounded-md bg-white border border-slate-300 text-slate-900 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition shadow-sm"
             />
+            {targetUrl.match(/(localhost|127\.0\.0\.1|0\.0\.0\.0)/i) && typeof window !== 'undefined' && !['localhost', '127.0.0.1'].includes(window.location.hostname) && (
+              <div className="mt-2.5 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start space-x-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                <div>
+                  <span className="font-semibold">Cloud Deployment Notice:</span> Since StressX is deployed in the cloud on Render, it cannot connect directly to your personal computer's <code>localhost</code>.
+                  <div className="mt-1 text-amber-800">
+                    To audit an app running on your computer, expose your local port using a free tunnel (e.g. run <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">npx ngrok http 8080</code>) and paste the public <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">https://...ngrok-free.app</code> URL here, or enter a deployed public URL.
+                  </div>
+                </div>
+              </div>
+            )}
             <p className="text-xs text-slate-400 mt-1">
               StressX connects directly to your live running backend without needing Docker.
             </p>

@@ -207,9 +207,43 @@ class AuditManager:
             # Handle direct Live URL audit
             if config.target_url:
                 from urllib.parse import urlparse
+                import httpx
                 parsed = urlparse(config.target_url)
                 port = parsed.port or (443 if parsed.scheme == "https" else 80)
                 hostname = parsed.hostname or "127.0.0.1"
+
+                # Pre-flight reachability probe
+                reachable = False
+                probe_err_msg = ""
+                try:
+                    async with httpx.AsyncClient(timeout=8.0, verify=False) as probe_client:
+                        await probe_client.get(config.target_url)
+                        reachable = True
+                except Exception as e:
+                    probe_err_msg = str(e)
+                    reachable = False
+
+                if not reachable:
+                    is_loopback = hostname in ("127.0.0.1", "localhost", "0.0.0.0", "::1")
+                    if is_loopback:
+                        fail_summary = (
+                            f"Target unreachable: Could not connect to {config.target_url} ({probe_err_msg}). "
+                            "StressX is running on a cloud server (Render) and cannot connect directly to your local computer's localhost. "
+                            "To audit a local app, expose your local port with a tunnel (e.g. 'npx ngrok http 8080') or provide a publicly accessible URL."
+                        )
+                    else:
+                        fail_summary = f"Target unreachable: Could not connect to {config.target_url} ({probe_err_msg}). Please verify the server is running and accessible."
+
+                    config.status = AuditStatus.FAILED
+                    await EVENT_MANAGER.emit(
+                        audit_id=audit_id,
+                        event_type=AuditEventType.STATUS_CHANGED,
+                        data={"status": "FAILED", "error": fail_summary},
+                        summary=fail_summary
+                    )
+                    logger.warning(f"Aborting audit {audit_id}: {fail_summary}")
+                    return
+
                 target = Target(
                     base_url=config.target_url,
                     allowed_hosts=[hostname, "127.0.0.1", "localhost"],
