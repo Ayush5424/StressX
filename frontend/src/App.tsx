@@ -24,7 +24,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="bg-slate-50 text-slate-900 min-h-screen flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
+    <div className="bg-slate-50 text-slate-900 min-h-screen w-full max-w-full overflow-x-hidden flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
       <Header
         currentView={currentView}
         onViewChange={(view) => {
@@ -34,7 +34,7 @@ export const App: React.FC = () => {
         hasActiveAudit={!!activeAuditId}
       />
 
-      <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
+      <main className="flex-1 px-3 sm:px-6 py-4 sm:py-6 max-w-7xl w-full mx-auto space-y-4 sm:space-y-6 overflow-x-hidden">
         {currentView === 'dashboard' && (
           <DashboardView
             onStartNewAudit={() => setCurrentView('new-audit')}

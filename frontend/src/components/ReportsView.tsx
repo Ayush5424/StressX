@@ -343,12 +343,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialAuditId, onOpen
           ) : (
             <>
               {/* 1. EXECUTIVE SUMMARY CARD AT THE TOP */}
-              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-5">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-2.5">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-sm space-y-4 sm:space-y-5 w-full overflow-hidden">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 pb-4 border-b border-slate-100">
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span
-                        className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                        className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider shrink-0 ${
                           currentStatus === 'COMPLETED'
                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                             : currentStatus === 'RUNNING'
@@ -358,15 +358,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialAuditId, onOpen
                       >
                         {currentStatus}
                       </span>
-                      <h1 className="text-xl font-bold text-slate-900">{currentAuditName}</h1>
+                      <h1 className="text-lg sm:text-xl font-bold text-slate-900 break-words">{currentAuditName}</h1>
                     </div>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 break-all">
                       <span>Target: <strong className="text-slate-800">{currentTargetName}</strong></span>
                       <span>Audit ID: <code className="font-mono text-slate-700 bg-slate-100 px-1 py-0.5 rounded">{selectedAuditId}</code></span>
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
                     <button
                       onClick={handleCopyRaw}
                       className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium flex items-center space-x-1.5 transition"
@@ -414,7 +414,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialAuditId, onOpen
               </div>
 
               {/* Navigation Tabs */}
-              <div className="flex space-x-2 border-b border-slate-200 pb-2 text-sm font-medium">
+              <div className="flex flex-wrap gap-1.5 sm:gap-2 border-b border-slate-200 pb-2 text-xs sm:text-sm font-medium">
                 <button
                   onClick={() => setActiveTab('findings')}
                   className={`px-3.5 py-1.5 rounded-lg transition flex items-center space-x-2 ${
@@ -673,7 +673,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialAuditId, onOpen
                                           <p className="text-slate-300 text-xs font-sans">{ev.observed_behavior}</p>
                                         )}
                                         {ev.response_body_preview && (
-                                          <pre className="p-2 bg-slate-900 rounded border border-slate-800 text-[11px] text-amber-300 max-h-36 overflow-y-auto">
+                                          <pre className="p-2 bg-slate-900 rounded border border-slate-800 text-[11px] text-amber-300 max-h-36 overflow-x-auto whitespace-pre-wrap break-all">
                                             {ev.response_body_preview}
                                           </pre>
                                         )}
@@ -779,7 +779,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialAuditId, onOpen
                       <span>{copiedRaw ? 'Copied' : 'Copy JSON'}</span>
                     </button>
                   </div>
-                  <pre className="p-4 bg-slate-900 text-slate-200 rounded-lg border border-slate-800 overflow-x-auto max-h-[500px]">
+                  <pre className="p-3 sm:p-4 bg-slate-900 text-slate-200 rounded-lg border border-slate-800 overflow-x-auto max-h-[500px] whitespace-pre-wrap break-all max-w-full">
                     {JSON.stringify(
                       {
                         audit_id: dossier?.audit_id,

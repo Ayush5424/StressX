@@ -183,29 +183,29 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
   const isSandboxing = status === 'INITIALIZING' || status === 'SANDBOXING';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6 w-full max-w-full overflow-hidden">
       {/* Top Header Card */}
-      <div className="ui-panel p-6 bg-white border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2 text-xs text-slate-500 mb-1">
-            <Radio className="w-3.5 h-3.5 text-blue-600" />
+      <div className="ui-panel p-4 sm:p-6 bg-white border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 w-full overflow-hidden">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mb-1">
+            <Radio className="w-3.5 h-3.5 text-blue-600 shrink-0" />
             <span className="font-semibold uppercase tracking-wider">Live Monitor</span>
             <span>&bull;</span>
-            <span className="font-mono text-slate-600">{auditId}</span>
+            <span className="font-mono text-slate-600 break-all">{auditId}</span>
           </div>
-          <h1 className="text-xl font-bold text-slate-900">{auditTitle}</h1>
-          <p className="text-xs text-slate-500 mt-1">
+          <h1 className="text-lg sm:text-xl font-bold text-slate-900 break-words">{auditTitle}</h1>
+          <p className="text-xs text-slate-500 mt-1 break-all">
             Target: <strong className="text-slate-700 font-medium">{targetName}</strong>
             {config?.target_url && (
-              <span className="ml-2 font-mono text-slate-400">({config.target_url})</span>
+              <span className="ml-1 sm:ml-2 font-mono text-slate-500 break-all">({config.target_url})</span>
             )}
           </p>
         </div>
 
-        <div className="flex items-center space-x-3 self-start md:self-auto">
+        <div className="flex items-center space-x-2 sm:space-x-3 self-start md:self-auto shrink-0">
           {/* Status Badge */}
           <div
-            className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center space-x-2 ${
+            className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded text-xs font-semibold flex items-center space-x-1.5 sm:space-x-2 ${
               status === 'RUNNING'
                 ? 'bg-blue-50 text-blue-700 border border-blue-200'
                 : status === 'INITIALIZING' || status === 'SANDBOXING'
@@ -216,7 +216,7 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
             }`}
           >
             {(status === 'RUNNING' || status === 'INITIALIZING' || status === 'SANDBOXING') && (
-              <span className="w-2 h-2 rounded-full bg-blue-600 live-indicator" />
+              <span className="w-2 h-2 rounded-full bg-blue-600 live-indicator shrink-0" />
             )}
             <span>{status}</span>
           </div>
@@ -225,7 +225,7 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
             <button
               onClick={handleStop}
               disabled={stopping}
-              className="px-3.5 py-1.5 rounded text-xs font-medium bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 flex items-center space-x-1.5 transition disabled:opacity-50"
+              className="px-3 py-1 sm:py-1.5 rounded text-xs font-medium bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 flex items-center space-x-1.5 transition disabled:opacity-50"
             >
               <Square className="w-3.5 h-3.5 fill-current" />
               <span>{stopping ? 'Stopping...' : 'Stop Audit'}</span>
@@ -236,11 +236,11 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
 
       {/* Error Banner if Failed */}
       {errorMessage && (
-        <div className="p-4 rounded-md bg-red-50 border border-red-200 text-red-800 text-sm flex items-start space-x-3">
+        <div className="p-3 sm:p-4 rounded-md bg-red-50 border border-red-200 text-red-800 text-xs sm:text-sm flex items-start space-x-2.5 sm:space-x-3 w-full overflow-hidden">
           <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-          <div className="space-y-1">
+          <div className="space-y-1 min-w-0 flex-1">
             <div className="font-bold text-red-900">Audit Launch Encountered an Error</div>
-            <div className="text-xs text-red-700">{errorMessage}</div>
+            <div className="text-xs text-red-700 break-words leading-relaxed">{errorMessage}</div>
           </div>
         </div>
       )}
@@ -333,23 +333,23 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
       </div>
 
       {/* AI Activity & Attack Surface Split */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 w-full overflow-hidden">
         {/* Left: AI Reasoning Activity */}
-        <div className="ui-panel bg-white border border-slate-200 flex flex-col h-[480px]">
-          <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
+        <div className="ui-panel bg-white border border-slate-200 flex flex-col min-w-0 w-full overflow-hidden h-[480px]">
+          <div className="px-4 sm:px-5 py-3 border-b border-slate-200 flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <Lightbulb className="w-4 h-4 text-amber-600" />
+              <Lightbulb className="w-4 h-4 text-amber-600 shrink-0" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
                 AI Cognitive Reasoning
               </h3>
             </div>
-            <span className="text-xs text-slate-400">Step {currentStep}</span>
+            <span className="text-xs text-slate-400 shrink-0">Step {currentStep}</span>
           </div>
 
-          <div className="p-5 flex-1 overflow-y-auto space-y-4">
+          <div className="p-4 sm:p-5 flex-1 overflow-y-auto space-y-4 min-w-0">
             {activity?.current_hypothesis ? (
-              <div className="p-4 rounded-md bg-slate-50 border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between">
+              <div className="p-3 sm:p-4 rounded-md bg-slate-50 border border-slate-200 space-y-2 min-w-0 overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-1">
                   <span className="text-xs font-bold text-blue-700 uppercase">
                     Active Hypothesis
                   </span>
@@ -357,11 +357,11 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
                     {activity.current_hypothesis.category}
                   </span>
                 </div>
-                <p className="text-sm text-slate-800 font-medium">
+                <p className="text-xs sm:text-sm text-slate-800 font-medium break-words">
                   {activity.current_hypothesis.description}
                 </p>
                 {activity.current_hypothesis.target_endpoint && (
-                  <div className="text-xs text-slate-500 font-mono">
+                  <div className="text-xs text-slate-500 font-mono break-all">
                     Target: {activity.current_hypothesis.target_endpoint}
                   </div>
                 )}
@@ -373,41 +373,41 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
             )}
 
             {activity?.last_tool && (
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 min-w-0">
                 <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
                   Latest Action Executed
                 </div>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded text-xs space-y-1">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded text-xs space-y-1 min-w-0 overflow-hidden">
                   <div className="font-mono text-slate-800">
                     Tool: <strong className="text-blue-700">{activity.last_tool}</strong>
                   </div>
                   {activity.last_target && (
-                    <div className="font-mono text-slate-600 truncate">
+                    <div className="font-mono text-slate-600 break-all">
                       Target: {activity.last_target}
                     </div>
                   )}
                   {activity.last_summary && (
-                    <div className="text-slate-600 mt-1">{activity.last_summary}</div>
+                    <div className="text-slate-600 mt-1 break-words">{activity.last_summary}</div>
                   )}
                 </div>
               </div>
             )}
 
             {/* Event Timeline */}
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 min-w-0">
               <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
                 Event Stream
               </div>
               <div
                 ref={eventsContainerRef}
-                className="space-y-2 font-mono text-xs max-h-48 overflow-y-auto pr-1 border border-slate-100 rounded-md p-2 bg-slate-50/50"
+                className="space-y-2 font-mono text-xs max-h-48 overflow-y-auto pr-1 border border-slate-100 rounded-md p-2 bg-slate-50/50 min-w-0"
               >
                 {events.slice(-25).map((ev, i) => (
-                  <div key={i} className="p-2 rounded bg-white border border-slate-200/60 flex items-start space-x-2 shadow-2xs">
+                  <div key={i} className="p-2 rounded bg-white border border-slate-200/60 flex items-start space-x-2 shadow-2xs min-w-0 overflow-hidden">
                     <span className="text-slate-400 text-[10px] shrink-0 mt-0.5">
                       {new Date(ev.timestamp).toLocaleTimeString()}
                     </span>
-                    <span className="text-slate-700 flex-1">{ev.summary || ev.event_type}</span>
+                    <span className="text-slate-700 flex-1 break-words break-all min-w-0 text-[11px] leading-relaxed">{ev.summary || ev.event_type}</span>
                   </div>
                 ))}
               </div>
@@ -416,21 +416,21 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
         </div>
 
         {/* Right: Attack Surface & Discovered Endpoints */}
-        <div className="ui-panel bg-white border border-slate-200 flex flex-col h-[480px]">
-          <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
+        <div className="ui-panel bg-white border border-slate-200 flex flex-col min-w-0 w-full overflow-hidden h-[480px]">
+          <div className="px-4 sm:px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center space-x-2">
-              <Layers className="w-4 h-4 text-blue-600" />
+              <Layers className="w-4 h-4 text-blue-600 shrink-0" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Attack Surface Surface ({surface.length})
+                Attack Surface ({surface.length})
               </h3>
             </div>
 
-            <div className="flex items-center space-x-1 text-xs">
+            <div className="flex flex-wrap items-center gap-1 text-xs">
               {(['all', 'testing', 'tested', 'discovered'] as const).map((filter) => (
                 <button
                   key={filter}
                   onClick={() => setSurfaceFilter(filter)}
-                  className={`px-2 py-0.5 rounded capitalize transition ${
+                  className={`px-2 py-0.5 rounded text-[11px] capitalize transition ${
                     surfaceFilter === filter
                       ? 'bg-blue-600 text-white font-medium'
                       : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
@@ -442,7 +442,7 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
             </div>
           </div>
 
-          <div className="p-4 flex-1 overflow-y-auto space-y-2">
+          <div className="p-3 sm:p-4 flex-1 overflow-y-auto space-y-2 min-w-0">
             {filteredSurface.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-400">
                 {isSandboxing ? 'Target sandbox initializing...' : 'No endpoints matching filter.'}
@@ -451,11 +451,11 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
               filteredSurface.map((ep, idx) => (
                 <div
                   key={idx}
-                  className="px-3 py-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between text-xs font-mono"
+                  className="px-3 py-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between text-xs font-mono min-w-0 overflow-hidden gap-2"
                 >
-                  <span className="text-slate-800 truncate mr-2">{ep.endpoint}</span>
+                  <span className="text-slate-800 break-all min-w-0 flex-1">{ep.endpoint}</span>
                   <span
-                    className={`px-2 py-0.5 rounded text-[11px] font-sans font-medium uppercase shrink-0 ${
+                    className={`px-2 py-0.5 rounded text-[10px] font-sans font-medium uppercase shrink-0 ${
                       ep.status === 'testing'
                         ? 'status-testing'
                         : ep.status === 'tested'
@@ -475,11 +475,11 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
       </div>
 
       {/* Confirmed Vulnerability Findings Section */}
-      <div className="ui-panel bg-white border border-slate-200">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+      <div className="ui-panel bg-white border border-slate-200 w-full overflow-hidden">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <ShieldCheck className="w-5 h-5 text-red-600" />
-            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+            <ShieldCheck className="w-5 h-5 text-red-600 shrink-0" />
+            <h3 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-wider">
               Empirically Verified Security Findings ({findings.length})
             </h3>
           </div>
@@ -490,13 +490,13 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
             No security vulnerabilities confirmed yet. Testing is active.
           </div>
         ) : (
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-slate-100 min-w-0">
             {findings.map((f) => (
-              <div key={f.id} className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 transition">
-                <div className="space-y-1 flex-1">
-                  <div className="flex items-center space-x-2">
+              <div key={f.id} className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 hover:bg-slate-50 transition min-w-0 overflow-hidden">
+                <div className="space-y-1 flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <span
-                      className={`text-xs px-2 py-0.5 rounded font-bold uppercase ${
+                      className={`text-xs px-2 py-0.5 rounded font-bold uppercase shrink-0 ${
                         f.severity === 'CRITICAL'
                           ? 'badge-critical'
                           : f.severity === 'HIGH'
@@ -508,12 +508,12 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
                     >
                       {f.severity}
                     </span>
-                    <span className="font-bold text-slate-900 text-sm">{f.title}</span>
+                    <span className="font-bold text-slate-900 text-sm break-words">{f.title}</span>
                   </div>
 
-                  <p className="text-xs text-slate-600 line-clamp-2">{f.description}</p>
+                  <p className="text-xs text-slate-600 line-clamp-2 break-words">{f.description}</p>
 
-                  <div className="flex items-center space-x-4 text-xs text-slate-400 font-mono pt-1">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs text-slate-400 font-mono pt-1 break-all">
                     {f.affected_endpoint && <span>Endpoint: {f.affected_endpoint}</span>}
                     <span>Category: {f.category}</span>
                   </div>
@@ -521,7 +521,7 @@ export const ActiveAuditView: React.FC<ActiveAuditViewProps> = ({ auditId, onOpe
 
                 <button
                   onClick={() => onOpenEvidence(f)}
-                  className="px-3 py-1.5 rounded text-xs font-medium border border-slate-300 hover:border-slate-400 text-slate-700 bg-white shadow-sm flex items-center space-x-1 transition shrink-0"
+                  className="px-3 py-1.5 rounded text-xs font-medium border border-slate-300 hover:border-slate-400 text-slate-700 bg-white shadow-sm flex items-center justify-center space-x-1 transition shrink-0 w-full sm:w-auto"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                   <span>Inspect Evidence</span>

@@ -184,18 +184,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onStartNewAudit, o
               return (
                 <div
                   key={rep.audit_id}
-                  className="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition"
+                  className="px-4 sm:px-6 py-3.5 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition w-full overflow-hidden min-w-0"
                 >
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-semibold text-slate-900 text-sm">
+                  <div className="space-y-1 flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                      <span className="font-semibold text-slate-900 text-sm break-words">
                         {auditTitle}
                       </span>
-                      <span className="text-xs font-mono px-2 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200">
+                      <span className="text-xs font-mono px-2 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200 shrink-0">
                         {rep.audit_id}
                       </span>
                       <span
-                        className={`text-xs px-2 py-0.5 rounded font-medium ${
+                        className={`text-xs px-2 py-0.5 rounded font-medium shrink-0 ${
                           rep.status === 'COMPLETED'
                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                             : rep.status === 'RUNNING' || rep.status === 'SANDBOXING'
@@ -207,30 +207,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onStartNewAudit, o
                       </span>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 break-all">
                       <span>Target: <strong className="text-slate-700 font-medium">{targetDisplay}</strong></span>
-                      <span className="flex items-center space-x-1">
+                      <span className="flex items-center space-x-1 shrink-0">
                         <Clock className="w-3 h-3 text-slate-400" />
                         <span>{formatDate(rep.timestamp)}</span>
                       </span>
                       {rep.duration && (
-                        <span>Duration: {rep.duration}</span>
+                        <span className="shrink-0">Duration: {rep.duration}</span>
                       )}
-                      <span>Steps: {rep.total_steps}</span>
+                      <span className="shrink-0">Steps: {rep.total_steps}</span>
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-4 self-end sm:self-center">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 self-start sm:self-center shrink-0 w-full sm:w-auto justify-between sm:justify-end pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
                     <div className="flex items-center space-x-1 text-xs font-medium">
                       {rep.findings_count > 0 ? (
                         <div className="flex items-center space-x-1.5">
                           {rep.critical_count > 0 && (
-                            <span className="badge-critical px-2 py-0.5 rounded">
+                            <span className="badge-critical px-2 py-0.5 rounded text-[11px]">
                               {rep.critical_count} Critical
                             </span>
                           )}
                           {rep.high_count > 0 && (
-                            <span className="badge-high px-2 py-0.5 rounded">
+                            <span className="badge-high px-2 py-0.5 rounded text-[11px]">
                               {rep.high_count} High
                             </span>
                           )}
@@ -245,7 +245,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onStartNewAudit, o
 
                     <button
                       onClick={() => onViewReport(rep.audit_id)}
-                      className="px-3 py-1.5 rounded text-xs font-medium border border-slate-300 hover:border-slate-400 text-slate-700 hover:text-slate-900 bg-white shadow-sm flex items-center space-x-1 transition"
+                      className="px-3 py-1.5 rounded text-xs font-medium border border-slate-300 hover:border-slate-400 text-slate-700 hover:text-slate-900 bg-white shadow-sm flex items-center space-x-1 transition shrink-0"
                     >
                       <span>View Report</span>
                       <ArrowRight className="w-3 h-3 text-slate-400" />

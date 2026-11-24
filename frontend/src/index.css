@@ -12,6 +12,16 @@
   --primary-blue: #2563eb;
 }
 
+html, body, #root {
+  max-width: 100vw;
+  overflow-x: hidden;
+  width: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   background-color: var(--bg-main);
   color: var(--text-main);

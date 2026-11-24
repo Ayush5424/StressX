@@ -38,13 +38,13 @@ export const EvidenceModal: React.FC<EvidenceModalProps> = ({ finding, onClose }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-      <div className="bg-white border border-slate-200 rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/50 backdrop-blur-sm">
+      <div className="bg-white border border-slate-200 rounded-xl sm:rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Modal Header */}
-        <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/70">
-          <div className="flex items-center space-x-3">
+        <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/70 gap-2">
+          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
             <span
-              className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+              className={`px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider shrink-0 ${
                 finding.severity === 'CRITICAL'
                   ? 'badge-critical'
                   : finding.severity === 'HIGH'
@@ -56,29 +56,29 @@ export const EvidenceModal: React.FC<EvidenceModalProps> = ({ finding, onClose }
             >
               {finding.severity}
             </span>
-            <h3 className="text-base font-bold text-slate-900">{finding.title}</h3>
+            <h3 className="text-sm sm:text-base font-bold text-slate-900 break-words min-w-0 flex-1">{finding.title}</h3>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition"
+            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-5 text-xs text-slate-700">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5 text-xs text-slate-700 min-w-0">
           {/* Endpoint & Category */}
-          <div className="grid grid-cols-2 gap-3 font-mono">
-            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 font-mono">
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 min-w-0 overflow-hidden">
               <span className="text-slate-400 block text-[10px] uppercase font-sans font-bold">Affected Endpoint</span>
-              <span className="text-blue-600 font-semibold text-sm">
+              <span className="text-blue-600 font-semibold text-xs sm:text-sm break-all">
                 {finding.affected_endpoint || '/'}
               </span>
             </div>
-            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 min-w-0 overflow-hidden">
               <span className="text-slate-400 block text-[10px] uppercase font-sans font-bold">Category</span>
-              <span className="text-slate-800 font-semibold text-sm">{finding.category}</span>
+              <span className="text-slate-800 font-semibold text-xs sm:text-sm break-all">{finding.category}</span>
             </div>
           </div>
 
@@ -121,7 +121,7 @@ export const EvidenceModal: React.FC<EvidenceModalProps> = ({ finding, onClose }
                 <span>{copied ? 'Copied!' : 'Copy cURL'}</span>
               </button>
             </div>
-            <pre className="p-3 bg-slate-900 border border-slate-800 rounded-lg text-emerald-400 font-mono text-xs overflow-x-auto select-all">
+            <pre className="p-3 bg-slate-900 border border-slate-800 rounded-lg text-emerald-400 font-mono text-xs overflow-x-auto select-all whitespace-pre-wrap break-all max-w-full">
               {curlCmd}
             </pre>
           </div>
@@ -134,18 +134,18 @@ export const EvidenceModal: React.FC<EvidenceModalProps> = ({ finding, onClose }
             <div className="space-y-3 font-mono">
               {finding.evidence && finding.evidence.length > 0 ? (
                 finding.evidence.map((ev, i) => (
-                  <div key={i} className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-                    <div className="flex justify-between text-slate-600 text-[11px]">
-                      <span className="font-semibold">
+                  <div key={i} className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2 min-w-0 overflow-hidden">
+                    <div className="flex flex-wrap justify-between gap-1 text-slate-600 text-[11px]">
+                      <span className="font-semibold break-all">
                         {ev.method || 'GET'} {ev.endpoint || ''}
                       </span>
-                      <span className="text-blue-600 font-bold">Status: {ev.status_code || 200}</span>
+                      <span className="text-blue-600 font-bold shrink-0">Status: {ev.status_code || 200}</span>
                     </div>
                     {ev.observed_behavior && (
-                      <p className="text-slate-700 text-xs font-sans">{ev.observed_behavior}</p>
+                      <p className="text-slate-700 text-xs font-sans break-words">{ev.observed_behavior}</p>
                     )}
                     {ev.response_body_preview && (
-                      <pre className="p-2 bg-slate-900 rounded border border-slate-800 text-[11px] text-amber-300 max-h-32 overflow-y-auto">
+                      <pre className="p-2 bg-slate-900 rounded border border-slate-800 text-[11px] text-amber-300 max-h-32 overflow-x-auto whitespace-pre-wrap break-all max-w-full">
                         {ev.response_body_preview}
                       </pre>
                     )}
